@@ -1,11 +1,22 @@
 {
   "name": "agentdom",
-  "version": "3.0.0",
-  "description": "AI-native runtime for operating any website. Gives autonomous agents a machine-readable schema of any page and human-like interaction capabilities.",
+  "version": "3.1.0",
+  "description": "Universal AI agent runtime. Gives agents structured, typed access to any software — web, desktop, CLI. No screenshots needed.",
   "main": "agentdom.js",
   "bin": {
     "agentdom": "./cli.js"
   },
+  "files": [
+    "agentdom.js",
+    "cli.js",
+    "mcp-server.js",
+    "desktop-mcp-server.js",
+    "agent-platform.js",
+    "integrations/",
+    "desktop-agent/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "cli": "node cli.js",
     "desktop": "node cli.js --desktop",
@@ -15,6 +26,7 @@
     "a2a": "node integrations/a2a.js",
     "openai": "node integrations/openai.js",
     "gemini": "node integrations/gemini.js",
+    "test": "node --test test/*.test.js",
     "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
     "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
     "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",
@@ -27,7 +39,7 @@
   "keywords": [
     "ai-agent", "browser-automation", "web-agent", "mcp", "openai", "gemini",
     "function-calling", "autonomous", "a2a", "agent-to-agent", "agentdom",
-    "puppeteer", "web-scraping", "ai-native", "schema"
+    "desktop-automation", "ai-native", "schema", "universal-runtime"
   ],
   "author": "AgentDOM",
   "license": "MIT",
@@ -35,13 +47,16 @@
     "type": "git",
     "url": "https://github.com/RagavRida/agentdom"
   },
+  "homepage": "https://getagentdom.com",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "uuid": "^11.1.0"
+  },
+  "optionalDependencies": {
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "engines": {
     "node": ">=18"

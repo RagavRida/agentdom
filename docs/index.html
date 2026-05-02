@@ -13,7 +13,7 @@
 <!-- Navigation -->
 <nav class="nav">
   <div class="nav-inner">
-    <a href="#" class="nav-logo">⚡ Agent<span>Docs</span></a>
+    <a href="../index.html" class="nav-logo">⚡ Agent<span>Docs</span></a>
     <div class="nav-links">
       <a href="#quickstart">Quick Start</a>
       <a href="#embed">Embed</a>
@@ -27,14 +27,13 @@
 
 <!-- Hero -->
 <header class="hero" id="top">
-  <div class="hero-glow"></div>
   <div class="container">
-    <div class="badge">Open Source · MIT License</div>
+    <div class="badge">Developer Documentation</div>
     <h1>Make your app <em>agent-ready</em></h1>
     <p class="hero-sub">One script tag. Any AI agent can now discover, authenticate, and use your app programmatically. No custom API needed.</p>
     <div class="hero-code">
       <div class="code-header"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span> <span class="code-label">Add to your site</span></div>
-      <pre><code>&lt;script src="https://agentdom-docs.s3.amazonaws.com/v3/agentdom.min.js"&gt;&lt;/script&gt;</code></pre>
+      <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/agentdom@3/agentdom.js"&gt;&lt;/script&gt;</code></pre>
     </div>
     <div class="hero-actions">
       <a href="#quickstart" class="btn btn-primary">Get Started</a>
@@ -87,7 +86,7 @@
       <p>Add this before <code>&lt;/body&gt;</code> in your HTML:</p>
       <div class="code-block">
         <pre><code>&lt;!-- AgentDOM v3 — makes your site agent-ready --&gt;
-&lt;script src="https://agentdom-docs.s3.amazonaws.com/v3/agentdom.min.js"&gt;&lt;/script&gt;</code></pre>
+&lt;script src="https://cdn.jsdelivr.net/npm/agentdom@3/agentdom.js"&gt;&lt;/script&gt;</code></pre>
       </div>
       <p>That's it. Any agent using AgentDOM can now scan and interact with your page.</p>
     </div>
@@ -139,7 +138,6 @@ require('agentdom');</code></pre>
   "auth": {
     "methods": ["form", "oauth2", "api_key"],
     "login_url": "/login",
-    "signup_url": "/signup",
     "oauth2": {
       "authorize_url": "/oauth/authorize",
       "token_url": "/oauth/token",
@@ -148,18 +146,14 @@ require('agentdom');</code></pre>
   },
   "capabilities": [
     { "name": "search", "url": "/search", "description": "Search products" },
-    { "name": "checkout", "url": "/checkout", "description": "Purchase items" },
-    { "name": "profile", "url": "/settings", "description": "Manage account" }
+    { "name": "checkout", "url": "/checkout", "description": "Purchase items" }
   ],
-  "rate_limits": {
-    "requests_per_minute": 60,
-    "concurrent_sessions": 3
-  },
+  "rate_limits": { "requests_per_minute": 60 },
   "contact": "agents@yourapp.com"
 }</code></pre>
     </div>
 
-    <h3>Annotate Your Forms for Better Discovery</h3>
+    <h3 style="margin-top:36px">Annotate Your Forms</h3>
     <p>Add <code>data-agentdom-*</code> attributes so agents understand your forms instantly:</p>
     <div class="code-block">
       <pre><code>&lt;form id="loginForm" data-agentdom-intent="authenticate"&gt;
@@ -190,7 +184,7 @@ require('agentdom');</code></pre>
     <div class="auth-grid">
       <div class="auth-card">
         <h3>🔐 Form-Based Auth</h3>
-        <p>Agent fills your login form directly. No API changes needed — just annotate your form.</p>
+        <p>Agent fills your login form directly. No API changes needed.</p>
         <div class="code-block code-sm">
           <pre><code>// Agent calls the auto-generated tool:
 login(email: "user@company.com", 
@@ -203,7 +197,7 @@ login(email: "user@company.com",
 
       <div class="auth-card">
         <h3>🔑 OAuth2 for Agents</h3>
-        <p>Standard OAuth2 flow with agent-specific scopes. Recommended for production.</p>
+        <p>Standard OAuth2 flow with agent-specific scopes.</p>
         <div class="code-block code-sm">
           <pre><code>// In your agentdom.json:
 "auth": {
@@ -211,7 +205,6 @@ login(email: "user@company.com",
   "oauth2": {
     "authorize_url": "/oauth/authorize",
     "token_url": "/oauth/token",
-    "client_id": "agentdom-client",
     "scopes": ["agent:read", "agent:write"]
   }
 }</code></pre>
@@ -220,7 +213,7 @@ login(email: "user@company.com",
 
       <div class="auth-card">
         <h3>🎫 API Key Auth</h3>
-        <p>Issue agent-specific API keys with limited scopes and rate limits.</p>
+        <p>Issue agent-specific API keys with limited scopes.</p>
         <div class="code-block code-sm">
           <pre><code>// Agent passes key via header or form
 &lt;form data-agentdom-intent="authenticate"&gt;
@@ -234,7 +227,7 @@ login(email: "user@company.com",
 
       <div class="auth-card">
         <h3>🛡️ Agent Tokens</h3>
-        <p>A new standard: issue short-lived tokens specifically for agent sessions.</p>
+        <p>Issue short-lived tokens specifically for agent sessions.</p>
         <div class="code-block code-sm">
           <pre><code>// Endpoint for agents to get tokens
 POST /auth/agent-token
@@ -260,8 +253,7 @@ POST /auth/agent-token
     <div class="example-grid">
       <div class="example-card">
         <h3>Your HTML</h3>
-        <div class="code-block code-sm">
-          <pre><code>&lt;form id="search" data-agentdom-intent="search"&gt;
+        <pre><code>&lt;form id="search" data-agentdom-intent="search"&gt;
   &lt;input name="q" placeholder="Search..."&gt;
   &lt;select name="category"&gt;
     &lt;option&gt;All&lt;/option&gt;
@@ -270,15 +262,13 @@ POST /auth/agent-token
   &lt;/select&gt;
   &lt;button type="submit"&gt;Search&lt;/button&gt;
 &lt;/form&gt;</code></pre>
-        </div>
       </div>
-      <div class="example-arrow">→<br><small>AgentDOM<br>synthesizes</small></div>
+      <div class="example-arrow">→</div>
       <div class="example-card highlight">
         <h3>Agent Gets This Tool</h3>
-        <div class="code-block code-sm">
-          <pre><code>search(
+        <pre><code>search(
   q: string,        // "Search..."
-  category: string   // "All" | "Products" | "Docs"
+  category: string  // "All" | "Products" | "Docs"
 )
 
 // Agent calls:
@@ -286,7 +276,6 @@ search(q: "winter jackets",
        category: "Products")
 
 // AgentDOM fills form + clicks submit</code></pre>
-        </div>
       </div>
     </div>
 
@@ -372,20 +361,16 @@ search(q: "winter jackets",
 
 <!-- Footer -->
 <footer class="footer">
-  <div class="container">
-    <div class="footer-inner">
-      <div>
-        <div class="footer-logo">⚡ AgentDOM</div>
-        <p>The runtime that makes any website agent-ready.</p>
-      </div>
-      <div class="footer-links">
-        <a href="https://github.com/RagavRida/agentdom">GitHub</a>
-        <a href="https://npmjs.com/package/agentdom">NPM</a>
-        <a href="#api">API Docs</a>
-      </div>
+  <div class="footer-inner">
+    <div class="footer-logo">⚡ AgentDOM</div>
+    <div class="footer-links">
+      <a href="https://github.com/RagavRida/agentdom">GitHub</a>
+      <a href="https://npmjs.com/package/agentdom">NPM</a>
+      <a href="#api">API Docs</a>
+      <a href="examples/crm-demo.html">CRM Demo</a>
     </div>
-    <div class="footer-copy">MIT License · Built for the agent era</div>
   </div>
+  <div class="footer-copy">MIT License · Built for the agent era</div>
 </footer>
 
 <script>
@@ -410,7 +395,7 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
 
 // Nav scroll effect
 window.addEventListener('scroll', () => {
-  document.querySelector('.nav').classList.toggle('scrolled', window.scrollY > 20);
+  document.querySelector('.nav').style.borderBottomColor = window.scrollY > 10 ? '#e5e7eb' : 'transparent';
 });
 </script>
 </body>

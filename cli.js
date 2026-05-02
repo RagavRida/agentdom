@@ -16,7 +16,7 @@ puppeteerExtra.use(StealthPlugin());
 // ── Colors ──
 const C = {
   r: '\x1b[0m', b: '\x1b[1m', d: '\x1b[2m',
-  green: '\x1b[38;2;0;212;170m', purple: '\x1b[38;2;167;139;250m',
+  green: '\x1b[38;2;0;212;170m', purple: '\x1b[38;2;167;139;250m',  
   orange: '\x1b[38;2;251;146;60m', blue: '\x1b[38;2;96;165;250m',
   red: '\x1b[38;2;239;68;68m', gray: '\x1b[38;2;136;136;160m',
   white: '\x1b[37m', pink: '\x1b[38;2;244;114;182m',
@@ -598,4 +598,322 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+// ── Desktop Mode ──
+async function desktopMode() {
+  const da = require('./desktop-agent');
+  if (!da.isSupported) { logE(`Desktop agent not supported on ${da.platform}`); process.exit(1); }
+
+  console.log('');
+  log('  ╔═══════════════════════════════════════════╗', C.orange);
+  log('  ║  AgentDOM v3.0 — Desktop Agent Mode       ║', C.orange);
+  log('  ╚═══════════════════════════════════════════╝', C.orange);
+  console.log('');
+  logS(`Platform: ${da.platform === 'darwin' ? 'macOS' : 'Windows'}`);
+  const hasAI = initAI();
+  if (hasAI) logS(`AI engine ready (OpenRouter → ${aiModel})`);
+  else logD('AI disabled (set OPENROUTER_API_KEY to enable)');
+  console.log('');
+
+  // Show running apps
+  const apps = da.listApps();
+  log('  Running apps:', C.blue);
+  apps.filter(a => a.wins > 0).forEach(a => {
+    log(`    ${a.frontmost ? '→' : ' '} ${a.name} (${a.wins} window${a.wins > 1 ? 's' : ''})`, a.frontmost ? C.green : C.gray);
+  });
+  console.log('');
+
+  let activeApp = da.getFrontApp();
+  logD(`Active app: ${activeApp}`);
+  logD('Type "help" for commands. Ctrl+C to exit.');
+  console.log('');
+
+  async function handleDesktopCommand(cmd) {
+    const trimmed = cmd.trim();
+    if (!trimmed) return;
+    const parts = trimmed.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+    const verb = parts[0].toLowerCase();
+    const rest = parts.slice(1).map(p => p.replace(/^"|"$/g, '')).join(' ');
+
+    try {
+      switch (verb) {
+        case 'apps': {
+          const apps = da.listApps();
+          apps.filter(a => a.wins > 0).forEach(a => {
+            log(`  ${a.frontmost ? '→' : ' '} ${a.name} (${a.wins} window${a.wins > 1 ? 's' : ''})`, a.frontmost ? C.green : C.gray);
+          });
+          break;
+        }
+
+        case 'use': case 'focus': case 'activate': {
+          if (!rest) { logE('Usage: use "App Name"'); break; }
+          da.activate(rest);
+          activeApp = rest;
+          logS(`Switched to: ${activeApp}`);
+          break;
+        }
+
+        case 'open': {
+          if (!rest) { logE('Usage: open "App Name"'); break; }
+          da.openApp(rest);
+          activeApp = rest;
+          logS(`Opened: ${activeApp}`);
+          break;
+        }
+
+        case 'scan': {
+          const target = rest || activeApp;
+          logI(`Scanning ${target}...`);
+          const elements = da.scanApp(target);
+          if (elements.error) {
+            logE(elements.error);
+            logD(elements.hint || '');
+            break;
+          }
+          const buttons = elements.filter(e => e.type === 'button');
+          const fields = elements.filter(e => ['text_input','text_area','search_field','combo_box'].includes(e.type));
+          const menuItems = elements.filter(e => e.type === 'menu_item');
+          const menus = elements.filter(e => e.type === 'menu');
+
+          log(`\n  ── ${target} UI Elements ──`, C.purple);
+          log(`  Buttons: ${buttons.length} | Fields: ${fields.length} | Menus: ${menus.length} | Menu Items: ${menuItems.length}`, C.gray);
+          if (buttons.length) {
+            log('\n  Buttons:', C.orange);
+            buttons.slice(0, 20).forEach(b => log(`    ⏺ "${b.label}" — ${b.description}`, C.white));
+          }
+          if (fields.length) {
+            log('\n  Text Fields:', C.blue);
+            fields.forEach(f => log(`    ✎ "${f.label}" — ${f.description}`, C.white));
+          }
+          if (menus.length) {
+            log('\n  Menus:', C.green);
+            menus.forEach(m => log(`    ≡ ${m.label}`, C.white));
+          }
+          if (menuItems.length) {
+            log('\n  Menu Items (first 30):', C.gray);
+            menuItems.slice(0, 30).forEach(m => log(`    → ${m.description}`, C.gray));
+          }
+          break;
+        }
+
+        case 'tools': {
+          const target = rest || activeApp;
+          logI(`Synthesizing tools for ${target}...`);
+          const elements = da.scanApp(target);
+          const tools = da.synthesizeTools(elements);
+          log(`\n  ${tools.length} tools generated:`, C.green);
+          tools.forEach(t => {
+            log(`    ${t.type === 'action' ? '⏺' : t.type === 'input' ? '✎' : '≡'} ${t.name}()  →  "${t.element}"`, C.orange);
+          });
+          break;
+        }
+
+        case 'click': {
+          if (!rest) { logE('Usage: click "Button Label"'); break; }
+          logI(`Clicking "${rest}" in ${activeApp}...`);
+          const result = da.clickElement(activeApp, rest);
+          if (result?.clicked) logS(`Clicked "${rest}"`);
+          else logE(`Could not find "${rest}" — try: scan`);
+          break;
+        }
+
+        case 'clickat': {
+          const coords = rest.split(/[,\s]+/).map(Number);
+          if (coords.length < 2) { logE('Usage: clickat 400,300'); break; }
+          da.clickAt(coords[0], coords[1]);
+          logS(`Clicked at (${coords[0]}, ${coords[1]})`);
+          break;
+        }
+
+        case 'type': {
+          const match = rest.match(/^"([^"]*)"$|^(.+)$/);
+          const text = match[1] || match[2];
+          logI(`Typing "${text}" in ${activeApp}...`);
+          da.typeText(activeApp, text);
+          logS(`Typed "${text}"`);
+          break;
+        }
+
+        case 'typein': {
+          const m = rest.match(/^"([^"]+)"\s+"([^"]+)"$/);
+          if (!m) { logE('Usage: typein "Field Label" "text to type"'); break; }
+          logI(`Typing into "${m[1]}"...`);
+          const r = da.typeIntoField(activeApp, m[1], m[2]);
+          if (r?.typed) logS(`Typed "${m[2]}" into "${m[1]}"`);
+          else logE(`Field "${m[1]}" not found`);
+          break;
+        }
+
+        case 'press': {
+          if (!rest) { logE('Usage: press cmd+s'); break; }
+          da.pressKeys(activeApp, rest);
+          logS(`Pressed ${rest}`);
+          break;
+        }
+
+        case 'menu': {
+          if (!rest) { logE('Usage: menu "File > Save As"'); break; }
+          logI(`Clicking menu: ${rest}...`);
+          const r = da.clickMenu(activeApp, rest);
+          if (r?.clicked) logS(`Menu: ${rest}`);
+          else logE(`Menu failed: ${r?.error || 'not found'}`);
+          break;
+        }
+
+        case 'scroll': {
+          const parts2 = rest.split(/\s+/);
+          const direction = parts2[0] || 'down';
+          const amount = parseInt(parts2[1]) || 5;
+          logI(`Scrolling ${direction} (${amount})...`);
+          da.scroll(activeApp, direction, amount);
+          logS(`Scrolled ${direction}`);
+          break;
+        }
+
+        case 'scrollto': {
+          const pos = rest || 'top';
+          da.scrollTo(activeApp, pos);
+          logS(`Scrolled to ${pos}`);
+          break;
+        }
+
+        case 'drag': {
+          const coords = rest.split(/[\s,]+/).map(Number);
+          if (coords.length < 4) { logE('Usage: drag 100,200 300,400'); break; }
+          da.drag(coords[0], coords[1], coords[2], coords[3]);
+          logS(`Dragged (${coords[0]},${coords[1]}) → (${coords[2]},${coords[3]})`);
+          break;
+        }
+
+        case 'screenshot': {
+          const fp = path.resolve(rest || `desktop_${Date.now()}.png`);
+          da.screenshotApp(activeApp, fp);
+          logS(`Screenshot: ${fp}`);
+          break;
+        }
+
+        case 'move': {
+          const vals = rest.split(/[\s,]+/).map(Number);
+          if (vals.length < 4) { logE('Usage: move x,y,w,h (e.g., move 0,0,1200,800)'); break; }
+          da.moveWindow(activeApp, vals[0], vals[1], vals[2], vals[3]);
+          logS(`Window moved to (${vals[0]},${vals[1]}) size ${vals[2]}x${vals[3]}`);
+          break;
+        }
+
+        case 'goal': {
+          if (!hasAI) { logE('AI not available. Set OPENROUTER_API_KEY.'); break; }
+          if (!rest) { logE('Usage: goal "Open Safari and search for AgentDOM"'); break; }
+          
+          log('', C.green);
+          log(`  ╔═══ DESKTOP AUTONOMOUS MODE ═══════════════╗`, C.green);
+          log(`  ║ Goal: ${rest.slice(0, 44)}`, C.green);
+          log(`  ╚═══════════════════════════════════════════╝`, C.green);
+          console.log('');
+
+          const history = [];
+          for (let step = 1; step <= 20; step++) {
+            // Scan current state
+            const elements = da.scanApp(activeApp);
+            const btns = Array.isArray(elements) ? elements.filter(e => e.role === 'AXButton').map(e => e.label).join(', ') : 'unknown';
+            const flds = Array.isArray(elements) ? elements.filter(e => ['AXTextField','AXTextArea'].includes(e.role)).map(e => e.label).join(', ') : 'unknown';
+
+            const prompt = `You are an AI agent controlling a macOS desktop. Complete the goal by issuing commands.
+
+GOAL: ${rest}
+
+ACTIVE APP: ${activeApp}
+BUTTONS: ${btns}
+TEXT FIELDS: ${flds}
+
+PREVIOUS: ${history.map((h,i) => `${i+1}. ${h.cmd} → ${h.result}`).join('\n') || 'None'}
+
+COMMANDS:
+- apps                    List running apps
+- use "AppName"           Switch to app
+- open "AppName"          Launch app
+- click "Button Label"    Click button
+- type "text"             Type text
+- typein "Field" "text"   Type into specific field
+- press cmd+s             Keyboard shortcut
+- menu "File > Save"      Click menu item
+- scroll down 5           Scroll direction + amount
+- scrollto top            Scroll to top/bottom
+- screenshot              Take screenshot
+
+Rules:
+1. ONE command per response, no explanation
+2. If DONE: DONE: <result>
+3. If FAILED: FAILED: <reason>
+
+Next command:`;
+
+            let ai;
+            try { ai = (await aiChat(prompt)).trim(); } catch(e) { logE(e.message); break; }
+
+            if (ai.startsWith('DONE:')) {
+              log(`  ✓ GOAL COMPLETE (${step} steps): ${ai.slice(5).trim()}`, C.green);
+              break;
+            }
+            if (ai.startsWith('FAILED:')) {
+              logE(`GOAL FAILED: ${ai.slice(7).trim()}`);
+              break;
+            }
+
+            const cleanCmd = ai.replace(/^```\w*\n?|\n?```$/g, '').replace(/^`|`$/g, '').split('\n')[0].trim();
+            log(`  ${C.purple}[Step ${step}]${C.r} ${C.orange}${cleanCmd}${C.r}`);
+            let result = 'OK';
+            try { await handleDesktopCommand(cleanCmd); } catch(e) { result = e.message; logE(result); }
+            history.push({ cmd: cleanCmd, result });
+            await new Promise(r => setTimeout(r, 500));
+          }
+          break;
+        }
+
+        case 'help': {
+          console.log('');
+          log('  ╭─── App Control ──────────────────────────╮', C.green);
+          logD('  apps | use "App" | open "App"');
+          log('  ╭─── Read ─────────────────────────────────╮', C.purple);
+          logD('  scan [App] | tools [App]');
+          log('  ╭─── Actions ──────────────────────────────╮', C.orange);
+          logD('  click "Label" | clickat x,y | type "text"');
+          logD('  typein "Field" "text" | press cmd+s');
+          logD('  menu "File > Save As"');
+          log('  ╭─── Scroll ──────────────────────────────╮', C.blue);
+          logD('  scroll up|down|left|right [amount]');
+          logD('  scrollto top|bottom');
+          logD('  drag x1,y1 x2,y2');
+          log('  ╭─── Utility ─────────────────────────────╮', C.gray);
+          logD('  screenshot [name] | move x,y,w,h | exit');
+          log('  ╭─── AI ──────────────────────────────────╮', C.pink);
+          logD('  goal "Open Safari and search for AgentDOM"');
+          console.log('');
+          break;
+        }
+
+        case 'exit': case 'quit': case 'q': {
+          logI('Bye!');
+          process.exit(0);
+        }
+
+        default: logE(`Unknown: "${verb}". Type "help".`);
+      }
+    } catch(e) { logE(e.message); }
+  }
+
+  // REPL
+  const rl = readline.createInterface({
+    input: process.stdin, output: process.stdout,
+    prompt: `${C.orange}◆${C.r} `, historySize: 200,
+  });
+  rl.prompt();
+  rl.on('line', async line => { await handleDesktopCommand(line); console.log(''); rl.prompt(); });
+  rl.on('close', () => process.exit(0));
+}
+
+// ── Entry Point ──
+const args = process.argv.slice(2);
+if (args.includes('--desktop') || args.includes('-d')) {
+  desktopMode().catch(e => { console.error('Fatal:', e); process.exit(1); });
+} else {
+  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+}

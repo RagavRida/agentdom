@@ -8,11 +8,21 @@
   },
   "scripts": {
     "cli": "node cli.js",
+    "desktop": "node cli.js --desktop",
     "server": "node integrations/http-server.js",
     "mcp": "node mcp-server.js",
+    "mcp:desktop": "node desktop-mcp-server.js",
     "a2a": "node integrations/a2a.js",
     "openai": "node integrations/openai.js",
-    "gemini": "node integrations/gemini.js"
+    "gemini": "node integrations/gemini.js",
+    "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
+    "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
+    "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",
+    "build:all": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64,node18-win-x64,node18-linux-x64 --out-path dist/"
+  },
+  "pkg": {
+    "assets": ["agentdom.js", "integrations/**/*", "mcp-server.js"],
+    "scripts": ["cli.js"]
   },
   "keywords": [
     "ai-agent", "browser-automation", "web-agent", "mcp", "openai", "gemini",

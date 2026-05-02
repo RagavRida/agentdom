@@ -52,30 +52,57 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 // ── Tool Execution ──
+const DESKTOP_TIMEOUT = 30000; // 30s max per tool
+
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  try {
-    // Meta-tools
-    if (name === 'discover') {
-      return ok(platform.discover(args?.category));
-    }
-    if (name === 'observe') {
-      return ok(platform.observe());
-    }
-    if (name === 'batch') {
-      const result = await platform.batch(args.actions || []);
-      return ok(result);
+  const execute = async () => {
+    // Validate args exist
+    if (args && typeof args !== 'object') {
+      return { content: [{ type: 'text', text: 'Arguments must be an object' }], isError: true };
     }
 
-    // All other tools → platform.execute
-    const result = platform.execute(name, args || {});
-    if (result.success === false) {
-      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+    try {
+      // Meta-tools
+      if (name === 'discover') {
+        return ok(platform.discover(args?.category));
+      }
+      if (name === 'observe') {
+        return ok(platform.observe());
+      }
+      if (name === 'batch') {
+        if (!args?.actions || !Array.isArray(args.actions)) {
+          return { content: [{ type: 'text', text: 'batch requires an "actions" array' }], isError: true };
+        }
+        if (args.actions.length > 50) {
+          return { content: [{ type: 'text', text: 'batch limited to 50 actions' }], isError: true };
+        }
+        const result = await platform.batch(args.actions);
+        return ok(result);
+      }
+
+      // All other tools → platform.execute
+      const result = platform.execute(name, args || {});
+      if (result.success === false) {
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+      }
+      return ok(result.result || result);
+    } catch (e) {
+      console.error(`[AgentDOM Desktop] Tool '${name}' failed: ${e.message}`);
+      return { content: [{ type: 'text', text: `Error in '${name}': ${e.message}` }], isError: true };
     }
-    return ok(result.result || result);
+  };
+
+  // Per-tool timeout
+  try {
+    return await Promise.race([
+      execute(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`Tool '${name}' timed out after ${DESKTOP_TIMEOUT}ms`)), DESKTOP_TIMEOUT)),
+    ]);
   } catch (e) {
-    return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    console.error(`[AgentDOM Desktop] Timeout: ${e.message}`);
+    return { content: [{ type: 'text', text: e.message }], isError: true };
   }
 });
 
@@ -102,12 +129,32 @@ function ok(data) {
   return { content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] };
 }
 
+// ── Graceful Shutdown ──
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[AgentDOM Desktop] ${signal} received, shutting down...`);
+  try { await server.close().catch(() => {}); } catch (_) {}
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('uncaughtException', (e) => {
+  console.error('[AgentDOM Desktop] Uncaught exception:', e.message);
+  shutdown('uncaughtException');
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[AgentDOM Desktop] Unhandled rejection:', e);
+});
+
 // ── Start ──
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const caps = platform.discover();
-  console.error(`AgentDOM Platform MCP Server v3.0.0`);
+  console.error(`AgentDOM Platform MCP Server v3.1.0`);
   console.error(`Runtime: ${caps.runtime} | Capabilities: ${caps.capabilities.length}`);
   console.error(`Categories: ${caps.categories.join(', ')}`);
 }

@@ -71,11 +71,55 @@ async function aiChat(prompt) {
   return data.choices?.[0]?.message?.content || '';
 }
 
+// ── Input Validation ──
+const MAX_URL_LENGTH = 2048;
+const MAX_TEXT_LENGTH = 10000;
+const MAX_SELECTOR_LENGTH = 500;
+const TOOL_TIMEOUTS = {
+  browse: 45000,
+  scan: 15000,
+  scan_with_tools: 15000,
+  click: 10000,
+  type_text: 10000,
+  fill_form: 20000,
+  submit_form: 30000,
+  read_text: 10000,
+  screenshot: 15000,
+  scroll: 5000,
+  hover: 5000,
+  press_key: 5000,
+  wait: 30000,
+  analyze: 60000,
+  ask_page: 60000,
+  execute: 15000,
+};
+
+function validateString(val, name, maxLen = 500) {
+  if (val === undefined || val === null) return;
+  if (typeof val !== 'string') throw new Error(`${name} must be a string, got ${typeof val}`);
+  if (val.length > maxLen) throw new Error(`${name} exceeds max length (${maxLen} chars)`);
+  return val;
+}
+
+function validateUrl(url) {
+  if (!url || typeof url !== 'string') throw new Error('url is required and must be a string');
+  if (url.length > MAX_URL_LENGTH) throw new Error(`URL exceeds max length (${MAX_URL_LENGTH} chars)`);
+  const normalized = url.startsWith('http') ? url : `https://${url}`;
+  try { new URL(normalized); } catch { throw new Error(`Invalid URL: ${url}`); }
+  // Block file:// and javascript: protocols
+  if (/^(file|javascript|data):/i.test(normalized)) throw new Error(`Blocked URL protocol: ${normalized.split(':')[0]}`);
+  return normalized;
+}
+
+function validateSelector(sel) {
+  return validateString(sel, 'selector', MAX_SELECTOR_LENGTH);
+}
+
 async function evalSafe(fn, args = [], timeout = 15000) {
   const p = await ensureBrowser();
   return Promise.race([
     p.evaluate(fn, ...args),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('Timeout')), timeout)),
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`Operation timed out after ${timeout}ms`)), timeout)),
   ]);
 }
 
@@ -205,16 +249,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // ── Tool Execution ──
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  const timeout = TOOL_TIMEOUTS[name] || 15000;
 
-  try {
+  // Wrap entire execution with per-tool timeout
+  const executeWithTimeout = async () => {
     switch (name) {
 
       case 'browse': {
+        const url = validateUrl(args.url);
         const p = await ensureBrowser();
-        const url = args.url.startsWith('http') ? args.url : `https://${args.url}`;
         await p.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
         const schema = await evalSafe(() => AgentDOM.scan());
-        await refreshDynamicTools(); // Re-synthesize tools for new page
+        await refreshDynamicTools();
         const result = synthesizer.synthesize(schema);
         const summary = `Navigated to: ${schema.page.meta.title}\nURL: ${schema.page.meta.url}\nForms: ${schema.page.forms.length}\nActions: ${schema.page.actions.length}\n\nAuto-generated tools: ${result.tools.filter(t => t._internal.type !== 'base').map(t => t.name).join(', ') || 'none'}`;
         return { content: [{ type: 'text', text: summary }] };
@@ -234,32 +280,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'click': {
-        await evalSafe(async (sel) => await AgentDOM.click(sel), [args.selector]);
+        const sel = validateSelector(args.selector);
+        if (!sel) throw new Error('selector is required');
+        await evalSafe(async (sel) => await AgentDOM.click(sel), [sel]);
         const p = await ensureBrowser();
         await p.waitForNetworkIdle({ timeout: 2000 }).catch(() => {});
         const title = await p.title();
-        return { content: [{ type: 'text', text: `Clicked "${args.selector}". Current page: ${title} (${p.url()})` }] };
+        return { content: [{ type: 'text', text: `Clicked "${sel}". Current page: ${title} (${p.url()})` }] };
       }
 
       case 'type_text': {
-        await evalSafe(async (s, t) => await AgentDOM.type(s, t), [args.selector, args.text]);
-        return { content: [{ type: 'text', text: `Typed "${args.text}" into ${args.selector}` }] };
+        const sel = validateSelector(args.selector);
+        const text = validateString(args.text, 'text', MAX_TEXT_LENGTH);
+        if (!sel) throw new Error('selector is required');
+        if (!text) throw new Error('text is required');
+        await evalSafe(async (s, t) => await AgentDOM.type(s, t), [sel, text]);
+        return { content: [{ type: 'text', text: `Typed "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}" into ${sel}` }] };
       }
 
       case 'fill_form': {
-        await evalSafe(async (s, d) => await AgentDOM.fillForm(s, d), [args.form_selector, args.data]);
-        return { content: [{ type: 'text', text: `Filled form ${args.form_selector} with ${Object.keys(args.data).length} field(s): ${JSON.stringify(args.data)}` }] };
+        const formSel = validateSelector(args.form_selector);
+        if (!formSel) throw new Error('form_selector is required');
+        if (!args.data || typeof args.data !== 'object') throw new Error('data must be an object');
+        const dataKeys = Object.keys(args.data);
+        if (dataKeys.length === 0) throw new Error('data must have at least one field');
+        if (dataKeys.length > 50) throw new Error('data exceeds maximum of 50 fields');
+        await evalSafe(async (s, d) => await AgentDOM.fillForm(s, d), [formSel, args.data]);
+        return { content: [{ type: 'text', text: `Filled form ${formSel} with ${dataKeys.length} field(s): ${JSON.stringify(args.data)}` }] };
       }
 
       case 'submit_form': {
-        await evalSafe(async (s) => await AgentDOM.submitForm(s), [args.form_selector]);
+        const formSel = validateSelector(args.form_selector);
+        if (!formSel) throw new Error('form_selector is required');
+        await evalSafe(async (s) => await AgentDOM.submitForm(s), [formSel]);
         const p = await ensureBrowser();
         await p.waitForNetworkIdle({ timeout: 3000 }).catch(() => {});
-        return { content: [{ type: 'text', text: `Submitted form ${args.form_selector}. Current page: ${await p.title()}` }] };
+        return { content: [{ type: 'text', text: `Submitted form ${formSel}. Current page: ${await p.title()}` }] };
       }
 
       case 'read_text': {
-        const sel = args.selector || 'body';
+        const sel = validateSelector(args.selector) || 'body';
         const text = await evalSafe((s) => {
           const el = document.querySelector(s);
           return el ? el.innerText.slice(0, 5000) : 'Element not found';
@@ -269,40 +329,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'screenshot': {
         const p = await ensureBrowser();
-        const buf = await p.screenshot({ fullPage: args.full_page || false, encoding: 'base64' });
+        const buf = await p.screenshot({ fullPage: !!args.full_page, encoding: 'base64' });
         return { content: [{ type: 'image', data: buf, mimeType: 'image/png' }] };
       }
 
       case 'scroll': {
         if (args.to_selector) {
-          await evalSafe(async (s) => await AgentDOM.scrollTo(s), [args.to_selector]);
-          return { content: [{ type: 'text', text: `Scrolled to ${args.to_selector}` }] };
+          const sel = validateSelector(args.to_selector);
+          await evalSafe(async (s) => await AgentDOM.scrollTo(s), [sel]);
+          return { content: [{ type: 'text', text: `Scrolled to ${sel}` }] };
         }
-        const px = args.pixels || 500;
+        const px = Math.min(Math.max(Number(args.pixels) || 500, -10000), 10000);
         await evalSafe(async (n) => await AgentDOM.scroll({ by: n }), [px]);
         return { content: [{ type: 'text', text: `Scrolled ${px}px` }] };
       }
 
       case 'hover': {
-        await evalSafe(async (s) => await AgentDOM.hover(s, 800), [args.selector]);
-        return { content: [{ type: 'text', text: `Hovered over ${args.selector}` }] };
+        const sel = validateSelector(args.selector);
+        if (!sel) throw new Error('selector is required');
+        await evalSafe(async (s) => await AgentDOM.hover(s, 800), [sel]);
+        return { content: [{ type: 'text', text: `Hovered over ${sel}` }] };
       }
 
       case 'press_key': {
+        const key = validateString(args.key, 'key', 50);
+        if (!key) throw new Error('key is required');
         const p = await ensureBrowser();
-        await p.keyboard.press(args.key);
-        return { content: [{ type: 'text', text: `Pressed ${args.key}` }] };
+        await p.keyboard.press(key);
+        return { content: [{ type: 'text', text: `Pressed ${key}` }] };
       }
 
       case 'wait': {
         const p = await ensureBrowser();
-        const timeout = args.timeout || 10000;
+        const waitTimeout = Math.min(Number(args.timeout) || 10000, 30000);
         if (args.text) {
-          await p.waitForFunction((t) => document.body.textContent.includes(t), { timeout }, args.text);
+          validateString(args.text, 'text', 1000);
+          await p.waitForFunction((t) => document.body.textContent.includes(t), { timeout: waitTimeout }, args.text);
           return { content: [{ type: 'text', text: `Found text: "${args.text}"` }] };
         }
         if (args.selector) {
-          await p.waitForSelector(args.selector, { visible: true, timeout });
+          validateSelector(args.selector);
+          await p.waitForSelector(args.selector, { visible: true, timeout: waitTimeout });
           return { content: [{ type: 'text', text: `Found element: ${args.selector}` }] };
         }
         return { content: [{ type: 'text', text: 'No selector or text provided to wait for' }] };
@@ -322,6 +389,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'ask_page': {
+        validateString(args.question, 'question', 2000);
+        if (!args.question) throw new Error('question is required');
         const p = await ensureBrowser();
         const pageText = await p.evaluate(() => document.body.innerText.slice(0, 4000));
         const prompt = `Page: ${await p.title()} (${p.url()})\nContent: ${pageText}\n\nQuestion: ${args.question}\n\nAnswer concisely:`;
@@ -331,6 +400,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'execute': {
+        validateString(args.command, 'command', 1000);
+        if (!args.command) throw new Error('command is required');
         const result = await evalSafe(async (cmd) => await AgentDOM.exec(cmd), [args.command]);
         return { content: [{ type: 'text', text: typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result || 'Done') }] };
       }
@@ -340,13 +411,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const dynTool = currentDynamicToolDefs.find(t => t.name === name);
         if (dynTool) {
           const p = await ensureBrowser();
-          // Create a minimal session-like object for the executor
           const sessionProxy = {
             page: p,
             async scan() { return await evalSafe(() => AgentDOM.scan()); },
             async click(sel) { await evalSafe(async s => await AgentDOM.click(s), [sel]); await p.waitForNetworkIdle({ timeout: 2000 }).catch(() => {}); return { clicked: sel, url: p.url(), title: await p.title() }; },
             async type(sel, text) { await evalSafe(async (s, t) => await AgentDOM.type(s, t), [sel, text]); return { typed: text, into: sel }; },
-            async browse(url) { const u = url.startsWith('http') ? url : `https://${url}`; await p.goto(u, { waitUntil: 'networkidle2', timeout: 30000 }); return await evalSafe(() => AgentDOM.scan()); },
+            async browse(url) { const u = validateUrl(url); await p.goto(u, { waitUntil: 'networkidle2', timeout: 30000 }); return await evalSafe(() => AgentDOM.scan()); },
             async scroll(px) { await evalSafe(async n => await AgentDOM.scroll({ by: n }), [px]); return { scrolled: px }; },
             async readText(sel) { return await evalSafe(s => document.querySelector(s)?.innerText?.slice(0, 5000) || 'Not found', [sel || 'body']); },
             async screenshot(full) { return await p.screenshot({ fullPage: full, encoding: 'base64' }); },
@@ -354,21 +424,56 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
           const executor = new ToolExecutor(sessionProxy);
           const result = await executor.execute(dynTool, args || {});
-          await refreshDynamicTools(); // Tools may have changed after action
+          await refreshDynamicTools();
           const resultStr = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
           return { content: [{ type: 'text', text: resultStr }] };
         }
-        return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
+        return { content: [{ type: 'text', text: `Unknown tool: ${name}. Use scan_with_tools to discover available tools.` }], isError: true };
       }
     }
+  };
+
+  try {
+    // Per-tool timeout wrapper
+    return await Promise.race([
+      executeWithTimeout(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`Tool '${name}' timed out after ${timeout}ms`)), timeout)),
+    ]);
   } catch (error) {
-    return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    const msg = error.message || String(error);
+    console.error(`[AgentDOM MCP] Tool '${name}' failed: ${msg}`);
+    return { content: [{ type: 'text', text: `Error in '${name}': ${msg}` }], isError: true };
   }
 });
 
-// ── Cleanup on exit ──
-process.on('SIGINT', async () => { if (browser) await browser.close(); process.exit(0); });
-process.on('SIGTERM', async () => { if (browser) await browser.close(); process.exit(0); });
+// ── Graceful Shutdown ──
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[AgentDOM MCP] ${signal} received, shutting down...`);
+  try {
+    if (browser) {
+      await browser.close().catch(() => {});
+      browser = null;
+      page = null;
+    }
+    await server.close().catch(() => {});
+  } catch (e) {
+    console.error('[AgentDOM MCP] Cleanup error:', e.message);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('uncaughtException', (e) => {
+  console.error('[AgentDOM MCP] Uncaught exception:', e.message);
+  shutdown('uncaughtException');
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[AgentDOM MCP] Unhandled rejection:', e);
+});
 
 // ── Start ──
 async function main() {

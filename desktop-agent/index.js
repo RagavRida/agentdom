@@ -4,7 +4,7 @@
  * Scan, click, type, navigate menus, take screenshots on ANY native app.
  */
 
-const { execSync, exec } = require('child_process');
+const { execFileSync } = require('child_process');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -12,11 +12,114 @@ const fs = require('fs');
 const PLATFORM = os.platform(); // 'darwin' | 'win32' | 'linux'
 
 // ════════════════════════════════════════════════
+//  Input sanitization & validation
+// ════════════════════════════════════════════════
+
+function sanitizeAS(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/\0/g, '').slice(0, 2000)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"');
+}
+
+function sanitizePS(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/\0/g, '').slice(0, 2000)
+    .replace(/'/g, "''")
+    .replace(/`/g, '``');
+}
+
+function validateAppName(name) {
+  if (!name || typeof name !== 'string') throw new Error('App name is required');
+  if (name.length > 100) throw new Error('App name too long');
+  if (/[;&|`$(){}[\]!#<>]/.test(name)) throw new Error(`Invalid characters in app name: "${name}"`);
+  return name.trim();
+}
+
+function validateLabel(str, fieldName = 'label') {
+  if (typeof str !== 'string') throw new Error(`${fieldName} must be a string`);
+  if (str.length > 500) throw new Error(`${fieldName} too long`);
+  return str;
+}
+
+function validateCoord(val, name) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) throw new Error(`${name} must be a finite number`);
+  if (n < -10000 || n > 50000) throw new Error(`${name} out of range: ${n}`);
+  return Math.round(n);
+}
+
+// ════════════════════════════════════════════════
+//  Safe shell wrappers — execFileSync, no shell interpretation
+// ════════════════════════════════════════════════
+
+function osascript(script, opts = {}) {
+  return execFileSync('osascript', ['-e', script], {
+    encoding: 'utf-8',
+    timeout: opts.timeout || 10000,
+    ...opts,
+  }).trim();
+}
+
+function jxa(script, opts = {}) {
+  return execFileSync('osascript', ['-l', 'JavaScript', '-e', script], {
+    encoding: 'utf-8',
+    timeout: opts.timeout || 15000,
+    ...opts,
+  }).trim();
+}
+
+function powershell(script, opts = {}) {
+  return execFileSync('powershell', ['-NoProfile', '-Command', script], {
+    encoding: 'utf-8',
+    timeout: opts.timeout || 15000,
+    ...opts,
+  }).trim();
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ════════════════════════════════════════════════
+//  Retry primitive
+// ════════════════════════════════════════════════
+
+async function withRetry(fn, { retries = 1, delay = 500 } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      if (i < retries) await sleep(delay);
+    }
+  }
+  throw lastErr;
+}
+
+// ════════════════════════════════════════════════
 //  macOS — AppleScript / JXA Accessibility Bridge
 // ════════════════════════════════════════════════
 
 const mac = {
-  /** List all running apps with windows */
+  /** Probe macOS Accessibility permission. Returns { ok, hint? }. */
+  checkPermissions() {
+    try {
+      const out = jxa(`
+        ObjC.import('ApplicationServices');
+        JSON.stringify({ trusted: $.AXIsProcessTrusted() });
+      `, { timeout: 3000 });
+      const { trusted } = JSON.parse(out);
+      if (trusted) return { ok: true };
+      return {
+        ok: false,
+        hint: 'Grant Accessibility permission: System Settings > Privacy & Security > Accessibility — add the app running this script (Terminal, iTerm, Node, etc.).',
+      };
+    } catch (e) {
+      return { ok: false, error: e.message, hint: 'osascript unavailable. Are you on macOS?' };
+    }
+  },
+
   listApps() {
     const script = `
       const se = Application("System Events");
@@ -31,28 +134,36 @@ const mac = {
       }
       JSON.stringify(result);
     `;
-    return JSON.parse(execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, { encoding: 'utf-8' }).trim());
-  },
-
-  /** Bring app to front (only when explicitly needed) */
-  activate(appName) {
-    execSync(`osascript -e 'tell application "${appName}" to activate'`);
-    execSync('sleep 0.3');
-  },
-
-  /** Silent background focus — sets frontmost without visual activation */
-  _silentFocus(appName) {
     try {
-      execSync(`osascript -l JavaScript -e 'Application("System Events").processes.byName("${appName}").frontmost = true'`, { timeout: 3000 });
+      return JSON.parse(jxa(script));
+    } catch (e) {
+      const perm = this.checkPermissions();
+      return { error: e.message, hint: perm.ok ? null : perm.hint };
+    }
+  },
+
+  /** Bring app to front. */
+  activate(appName) {
+    const name = validateAppName(appName);
+    osascript(`tell application "${sanitizeAS(name)}" to activate`);
+    execFileSync('sleep', ['0.3']);
+  },
+
+  /** Silent background focus — sets frontmost without visual activation. */
+  _silentFocus(appName) {
+    const name = validateAppName(appName);
+    try {
+      jxa(`Application("System Events").processes.byName("${sanitizeAS(name)}").frontmost = true`, { timeout: 3000 });
     } catch {}
   },
 
-  /** Scan an app's UI tree — returns agent-readable structured elements. NO activation needed. */
+  /** Scan an app's UI tree — returns agent-readable structured elements. */
   scanApp(appName) {
-    // No activate — reads accessibility tree in background
+    const name = validateAppName(appName);
+    const safeName = sanitizeAS(name);
     const script = `
       const se = Application("System Events");
-      const proc = se.processes.byName("${appName}");
+      const proc = se.processes.byName("${safeName}");
       const elements = [];
       const roleNames = {
         AXButton: 'button', AXTextField: 'text_input', AXTextArea: 'text_area',
@@ -63,37 +174,23 @@ const mac = {
         AXImage: 'image', AXGroup: 'group', AXScrollArea: 'scroll_area',
         AXTable: 'table', AXOutline: 'tree_view'
       };
-      
       function scanElement(el, depth, parentPath) {
         if (depth > 4) return;
         try {
           const role = el.role();
           const title = el.title() || '';
           const desc = el.description() || '';
-          const subrole = ''; try { subrole = el.subrole() || ''; } catch(e) {}
           let val = null; try { val = el.value(); } catch(e) {}
           let enabled = true; try { enabled = el.enabled(); } catch(e) {}
           let focused = false; try { focused = el.focused(); } catch(e) {}
           let pos = null, size = null;
           try { pos = el.position(); size = el.size(); } catch(e) {}
-          
-          // Get available actions
           let acts = [];
-          try {
-            const actions = el.actions();
-            for (let a = 0; a < actions.length; a++) {
-              acts.push(actions[a].name());
-            }
-          } catch(e) {}
-          
-          const interactive = ['AXButton','AXTextField','AXTextArea','AXCheckBox',
-            'AXRadioButton','AXPopUpButton','AXComboBox','AXSlider',
-            'AXMenuItem','AXLink','AXIncrementor','AXTab','AXSearchField'].includes(role);
-          
+          try { const actions = el.actions(); for (let a = 0; a < actions.length; a++) { acts.push(actions[a].name()); } } catch(e) {}
+          const interactive = ['AXButton','AXTextField','AXTextArea','AXCheckBox','AXRadioButton','AXPopUpButton','AXComboBox','AXSlider','AXMenuItem','AXLink','AXIncrementor','AXTab','AXSearchField'].includes(role);
           if (interactive || (role === 'AXStaticText' && title)) {
             const friendlyRole = roleNames[role] || role;
             const label = title || desc || '';
-            // Generate agent-readable description
             let agentDesc = '';
             if (role === 'AXButton') agentDesc = 'Click to ' + (label.toLowerCase() || 'perform action');
             else if (role === 'AXTextField' || role === 'AXTextArea' || role === 'AXSearchField') agentDesc = 'Type text into: ' + label;
@@ -104,94 +201,55 @@ const mac = {
             else if (role === 'AXSlider') agentDesc = 'Adjust slider: ' + label;
             else if (role === 'AXTab') agentDesc = 'Switch to tab: ' + label;
             else agentDesc = label;
-
-            elements.push({
-              type: friendlyRole,
-              label: label,
-              description: agentDesc,
-              value: val,
-              enabled: enabled,
-              focused: focused,
-              actions: acts,
-              path: parentPath,
-              position: pos,
-              size: size
-            });
+            elements.push({ type: friendlyRole, label, description: agentDesc, value: val, enabled, focused, actions: acts, path: parentPath, position: pos, size });
           }
-          
-          try {
-            const children = el.uiElements();
-            for (let i = 0; i < Math.min(children.length, 50); i++) {
-              scanElement(children[i], depth + 1, parentPath + '/' + (title || role));
-            }
-          } catch(e) {}
+          try { const children = el.uiElements(); for (let i = 0; i < Math.min(children.length, 50); i++) { scanElement(children[i], depth + 1, parentPath + '/' + (title || role)); } } catch(e) {}
         } catch(e) {}
       }
-      
-      // Scan all windows — NO activation
       const windows = proc.windows();
-      for (let w = 0; w < windows.length; w++) {
-        scanElement(windows[w], 0, 'window[' + w + ']');
-      }
-      
-      // Scan menu bar
+      for (let w = 0; w < windows.length; w++) { scanElement(windows[w], 0, 'window[' + w + ']'); }
       try {
-        const menuBar = proc.menuBars[0];
-        const menus = menuBar.menuBarItems();
+        const menuBar = proc.menuBars[0]; const menus = menuBar.menuBarItems();
         for (let m = 0; m < menus.length; m++) {
           const menuName = menus[m].title();
           elements.push({ type: 'menu', label: menuName, description: 'Open ' + menuName + ' menu', value: null, enabled: true, focused: false, actions: ['AXPress'], path: 'menubar', position: null, size: null });
-          try {
-            const items = menus[m].menus[0].menuItems();
-            for (let i = 0; i < items.length; i++) {
-              const itemName = items[i].title();
-              let shortcut = '';
-              try { shortcut = items[i].value() || ''; } catch(e) {}
-              if (itemName) {
-                elements.push({ type: 'menu_item', label: itemName, description: 'Execute: ' + menuName + ' > ' + itemName, value: shortcut || null, enabled: true, focused: false, actions: ['AXPress'], path: 'menu/' + menuName, position: null, size: null });
-              }
-            }
-          } catch(e) {}
+          try { const items = menus[m].menus[0].menuItems(); for (let i = 0; i < items.length; i++) { const itemName = items[i].title(); if (itemName) { elements.push({ type: 'menu_item', label: itemName, description: 'Execute: ' + menuName + ' > ' + itemName, value: null, enabled: true, focused: false, actions: ['AXPress'], path: 'menu/' + menuName, position: null, size: null }); } } } catch(e) {}
         }
       } catch(e) {}
-      
       JSON.stringify(elements);
     `;
     try {
-      const raw = execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, {
-        encoding: 'utf-8', timeout: 15000
-      }).trim();
-      return JSON.parse(raw);
+      return JSON.parse(jxa(script, { timeout: 15000 }));
     } catch (e) {
-      return { error: e.message, hint: 'Grant Accessibility permission: System Settings > Privacy > Accessibility' };
+      const perm = this.checkPermissions();
+      return { error: e.message, hint: perm.ok ? 'App may not be running, or its accessibility tree is unavailable.' : perm.hint };
     }
   },
 
-  /** Click a UI element by label — uses AXPress action, NO activation/foregrounding */
+  /** Click a UI element by label — uses AXPress action, no activation. */
   clickElement(appName, label) {
-    // No activate — directly perform AXPress through accessibility API
+    const name = validateAppName(appName);
+    const lbl = validateLabel(label);
+    const safeName = sanitizeAS(name);
+    const safeLbl = sanitizeAS(lbl);
     const script = `
       const se = Application("System Events");
-      const proc = se.processes.byName("${appName}");
-      
+      const proc = se.processes.byName("${safeName}");
       function findAndPress(el, depth) {
         if (depth > 5) return false;
         try {
-          const role = el.role();
           const title = el.title() || el.description() || '';
-          if (title === "${label}") {
-            // Use AXPress action — works without visual focus
+          if (title === "${safeLbl}") {
             try {
               const actions = el.actions();
               for (let a = 0; a < actions.length; a++) {
-                const name = actions[a].name();
-                if (name === 'AXPress' || name === 'AXConfirm' || name === 'AXPick') {
+                const n = actions[a].name();
+                if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
                   actions[a].perform();
                   return true;
                 }
               }
             } catch(e) {}
-            // Fallback to click()
             try { el.click(); return true; } catch(e) {}
           }
           try {
@@ -203,45 +261,82 @@ const mac = {
         } catch(e) {}
         return false;
       }
-      
       let found = false;
       const wins = proc.windows();
       for (let w = 0; w < wins.length; w++) {
         if (findAndPress(wins[w], 0)) { found = true; break; }
       }
-      JSON.stringify({ clicked: found, method: 'AXPress', app: "${appName}", element: "${label}" });
+      JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}" });
     `;
-    const result = JSON.parse(execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, { encoding: 'utf-8', timeout: 10000 }).trim());
-    return result;
+    return JSON.parse(jxa(script, { timeout: 10000 }));
   },
 
-  /** Click at screen coordinates */
+  /** Click at screen coordinates. */
   clickAt(x, y) {
-    // Use AppleScript to click at coordinates
-    execSync(`osascript -e 'tell application "System Events" to click at {${x}, ${y}}'`);
+    const cx = validateCoord(x, 'x');
+    const cy = validateCoord(y, 'y');
+    osascript(`tell application "System Events" to click at {${cx}, ${cy}}`);
   },
 
-  /** Type text — uses AXSetValue on focused field, NO activation */
+  /** Type text into the focused field of `appName`. ASCII → keystroke; non-ASCII → clipboard paste. */
   typeText(appName, text) {
-    // Use System Events keystroke without activation
-    const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    execSync(`osascript -e 'tell application "System Events" to tell process "${appName}" to keystroke "${escaped}"'`);
+    const name = validateAppName(appName);
+    const str = typeof text === 'string' ? text : String(text);
+    const safeName = sanitizeAS(name);
+
+    // Non-ASCII (emoji, CJK, RTL, accented) — keystroke corrupts; use clipboard paste.
+    // Also bypass keystroke for very long strings (>500 chars) since per-char keystroke is slow.
+    const needsPaste = !/^[\x20-\x7e\n\r\t]*$/.test(str) || str.length > 500;
+    if (needsPaste) {
+      mac._pasteText(name, str);
+      return;
+    }
+    const safeText = sanitizeAS(str);
+    osascript(`tell application "System Events" to tell process "${safeName}" to keystroke "${safeText}"`);
   },
 
-  /** Type into a specific field by label — uses AXSetValue, NO activation */
+  /** Internal: paste arbitrary text into the focused field via clipboard. Preserves prior clipboard. */
+  _pasteText(appName, text) {
+    const name = validateAppName(appName);
+    const safeName = sanitizeAS(name);
+
+    // Save current clipboard (best-effort — text only; binary/file clipboards are not preserved).
+    let prev = null;
+    try { prev = execFileSync('pbpaste', { encoding: 'utf-8' }); } catch {}
+
+    // Write new text to clipboard via stdin (no shell interpretation).
+    execFileSync('pbcopy', [], { input: text });
+
+    try {
+      // Cmd+V into the target process — no activation required if the field is already focused.
+      osascript(`tell application "System Events" to tell process "${safeName}" to keystroke "v" using {command down}`);
+      // Give the paste a moment to land before we restore the clipboard.
+      execFileSync('sleep', ['0.15']);
+    } finally {
+      if (prev !== null) {
+        try { execFileSync('pbcopy', [], { input: prev }); } catch {}
+      }
+    }
+  },
+
+  /** Type into a specific field by label — uses AXSetValue. */
   typeIntoField(appName, fieldLabel, text) {
-    // Directly set value via accessibility — completely silent
+    const name = validateAppName(appName);
+    const lbl = validateLabel(fieldLabel, 'fieldLabel');
+    const txt = validateLabel(typeof text === 'string' ? text : String(text), 'text');
+    const safeName = sanitizeAS(name);
+    const safeLbl = sanitizeAS(lbl);
+    const safeTxt = sanitizeAS(txt);
     const script = `
       const se = Application("System Events");
-      const proc = se.processes.byName("${appName}");
-      
+      const proc = se.processes.byName("${safeName}");
       function findField(el, depth) {
         if (depth > 5) return null;
         try {
           const role = el.role();
           const title = el.title() || el.description() || '';
-          if (['AXTextField','AXTextArea','AXComboBox','AXSearchField'].includes(role) && 
-              (title.includes("${fieldLabel}") || title === "${fieldLabel}")) {
+          if (['AXTextField','AXTextArea','AXComboBox','AXSearchField'].includes(role) &&
+              (title.includes("${safeLbl}") || title === "${safeLbl}")) {
             return el;
           }
           const children = el.uiElements();
@@ -252,213 +347,202 @@ const mac = {
         } catch(e) {}
         return null;
       }
-      
       const wins = proc.windows();
       let done = false;
       for (let w = 0; w < wins.length; w++) {
         const field = findField(wins[w], 0);
         if (field) {
           try { field.focused = true; } catch(e) {}
-          field.value = "${text.replace(/"/g, '\\"')}";
+          field.value = "${safeTxt}";
           done = true;
           break;
         }
       }
-      JSON.stringify({ typed: done, method: 'AXSetValue', field: "${fieldLabel}" });
+      JSON.stringify({ typed: done, method: 'AXSetValue', field: "${safeLbl}" });
     `;
-    return JSON.parse(execSync(`osascript -l JavaScript -e '${script.replace(/'/g, "'\\''")}'`, { encoding: 'utf-8', timeout: 10000 }).trim());
+    return JSON.parse(jxa(script, { timeout: 10000 }));
   },
 
-  /** Press keyboard shortcut — targets app process directly, no activation */
+  /** Press keyboard shortcut — e.g. "cmd+s", "shift+tab". */
   pressKeys(appName, shortcut) {
-    const parts = shortcut.toLowerCase().split('+');
+    if (typeof shortcut !== 'string') throw new Error('shortcut must be a string');
+    const parts = shortcut.toLowerCase().split('+').map(s => s.trim());
     const key = parts.pop();
-    const mods = parts;
-    
-    let modStr = '';
-    if (mods.includes('cmd') || mods.includes('command')) modStr += 'command down, ';
-    if (mods.includes('shift')) modStr += 'shift down, ';
-    if (mods.includes('alt') || mods.includes('option')) modStr += 'option down, ';
-    if (mods.includes('ctrl') || mods.includes('control')) modStr += 'control down, ';
-    modStr = modStr.replace(/, $/, '');
-    
-    // Map special key names
+    const mods = new Set(parts);
+    const allowedMods = new Set(['cmd','command','shift','alt','option','ctrl','control','fn']);
+    for (const m of mods) {
+      if (!allowedMods.has(m)) throw new Error(`Unknown modifier: ${m}`);
+    }
+
+    const modList = [];
+    if (mods.has('cmd') || mods.has('command')) modList.push('command down');
+    if (mods.has('shift')) modList.push('shift down');
+    if (mods.has('alt') || mods.has('option')) modList.push('option down');
+    if (mods.has('ctrl') || mods.has('control')) modList.push('control down');
+    const modStr = modList.join(', ');
+
     const keyMap = { 'enter': 'return', 'esc': 'escape', 'del': 'delete', 'tab': 'tab', 'space': 'space',
       'up': 'up arrow', 'down': 'down arrow', 'left': 'left arrow', 'right': 'right arrow' };
     const mappedKey = keyMap[key] || key;
-    
+
     if (mappedKey.length === 1) {
-      if (modStr) {
-        execSync(`osascript -e 'tell application "System Events" to keystroke "${mappedKey}" using {${modStr}}'`);
-      } else {
-        execSync(`osascript -e 'tell application "System Events" to keystroke "${mappedKey}"'`);
-      }
+      if (!/^[\x20-\x7e]$/.test(mappedKey)) throw new Error(`Invalid key: ${mappedKey}`);
+      const safeKey = sanitizeAS(mappedKey);
+      const script = modStr
+        ? `tell application "System Events" to keystroke "${safeKey}" using {${modStr}}`
+        : `tell application "System Events" to keystroke "${safeKey}"`;
+      osascript(script);
     } else {
       const keyCodeMap = { 'return': 36, 'escape': 53, 'delete': 51, 'tab': 48, 'space': 49,
         'up arrow': 126, 'down arrow': 125, 'left arrow': 123, 'right arrow': 124,
         'f1': 122, 'f2': 120, 'f3': 99, 'f4': 118, 'f5': 96 };
       const code = keyCodeMap[mappedKey];
-      if (code !== undefined) {
-        if (modStr) {
-          execSync(`osascript -e 'tell application "System Events" to key code ${code} using {${modStr}}'`);
-        } else {
-          execSync(`osascript -e 'tell application "System Events" to key code ${code}'`);
-        }
-      }
+      if (code === undefined) throw new Error(`Unknown key: ${key}`);
+      const script = modStr
+        ? `tell application "System Events" to key code ${code} using {${modStr}}`
+        : `tell application "System Events" to key code ${code}`;
+      osascript(script);
     }
   },
 
-  /** Click a menu item: "File > Save As" */
+  /** Click a menu item: "File > Save As". */
   clickMenu(appName, menuPath) {
-    this.activate(appName);
-    const parts = menuPath.split('>').map(s => s.trim());
+    const name = validateAppName(appName);
+    if (typeof menuPath !== 'string') throw new Error('menuPath must be a string');
+    this.activate(name);
+    const parts = menuPath.split('>').map(s => s.trim()).filter(Boolean);
     if (parts.length < 2) return { error: 'Format: "Menu > Item" or "Menu > Sub > Item"' };
-    
-    let script = `tell application "System Events" to tell process "${appName}"\n`;
-    script += `  click menu item "${parts[parts.length - 1]}" of `;
+    for (const p of parts) validateLabel(p, 'menu segment');
+
+    const safeName = sanitizeAS(name);
+    let script = `tell application "System Events" to tell process "${safeName}"\n`;
+    script += `  click menu item "${sanitizeAS(parts[parts.length - 1])}" of `;
     for (let i = parts.length - 2; i >= 0; i--) {
-      if (i === 0) {
-        script += `menu 1 of menu bar item "${parts[i]}" of menu bar 1\n`;
-      } else {
-        script += `menu 1 of menu item "${parts[i]}" of `;
-      }
+      const seg = sanitizeAS(parts[i]);
+      if (i === 0) script += `menu 1 of menu bar item "${seg}" of menu bar 1\n`;
+      else script += `menu 1 of menu item "${seg}" of `;
     }
     script += `end tell`;
-    
     try {
-      execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, { timeout: 5000 });
+      osascript(script, { timeout: 5000 });
       return { clicked: true };
     } catch (e) {
       return { clicked: false, error: e.message };
     }
   },
 
-  /** Open an application */
   openApp(appName) {
-    execSync(`open -a "${appName}"`);
-    execSync('sleep 1');
+    const name = validateAppName(appName);
+    execFileSync('open', ['-a', name]);
+    execFileSync('sleep', ['1']);
   },
 
-  /** Take screenshot of a specific app window */
   screenshotApp(appName, outputPath) {
-    this.activate(appName);
-    execSync('sleep 0.3');
-    // Get window ID
+    const name = validateAppName(appName);
+    if (typeof outputPath !== 'string' || outputPath.length > 1024) throw new Error('Invalid outputPath');
+    this.activate(name);
+    execFileSync('sleep', ['0.3']);
     try {
-      const winId = execSync(`osascript -l JavaScript -e '
+      const safeName = sanitizeAS(name);
+      const winInfo = jxa(`
         const se = Application("System Events");
-        const proc = se.processes.byName("${appName}");
+        const proc = se.processes.byName("${safeName}");
         const win = proc.windows[0];
         const pos = win.position();
         const sz = win.size();
         JSON.stringify({x: pos[0], y: pos[1], w: sz[0], h: sz[1]});
-      '`, { encoding: 'utf-8' }).trim();
-      const { x, y, w, h } = JSON.parse(winId);
-      execSync(`screencapture -R${x},${y},${w},${h} "${outputPath}"`);
-    } catch (e) {
-      // Fallback: full screen
-      execSync(`screencapture "${outputPath}"`);
+      `);
+      const { x, y, w, h } = JSON.parse(winInfo);
+      execFileSync('screencapture', [`-R${x},${y},${w},${h}`, outputPath]);
+    } catch {
+      execFileSync('screencapture', [outputPath]);
     }
     return outputPath;
   },
 
-  /** Get frontmost app name */
   getFrontApp() {
-    return execSync(`osascript -e 'tell application "System Events" to name of first process whose frontmost is true'`, { encoding: 'utf-8' }).trim();
+    return osascript(`tell application "System Events" to name of first process whose frontmost is true`);
   },
 
-  /** Move/resize a window */
   moveWindow(appName, x, y, w, h) {
-    this.activate(appName);
-    let script = `tell application "System Events" to tell process "${appName}"\n`;
-    if (x !== undefined && y !== undefined) script += `  set position of window 1 to {${x}, ${y}}\n`;
-    if (w !== undefined && h !== undefined) script += `  set size of window 1 to {${w}, ${h}}\n`;
+    const name = validateAppName(appName);
+    this.activate(name);
+    const safeName = sanitizeAS(name);
+    let script = `tell application "System Events" to tell process "${safeName}"\n`;
+    if (x !== undefined && y !== undefined) {
+      script += `  set position of window 1 to {${validateCoord(x,'x')}, ${validateCoord(y,'y')}}\n`;
+    }
+    if (w !== undefined && h !== undefined) {
+      script += `  set size of window 1 to {${validateCoord(w,'w')}, ${validateCoord(h,'h')}}\n`;
+    }
     script += `end tell`;
-    execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`);
+    osascript(script);
   },
 
-  /** Run an arbitrary AppleScript */
+  /** Run an arbitrary AppleScript. Caller is responsible for content. */
   runAppleScript(script) {
-    return execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, { encoding: 'utf-8' }).trim();
+    if (typeof script !== 'string') throw new Error('script must be a string');
+    return osascript(script);
   },
 
-  /** Mouse move + click at coordinates with human-like behavior */
   humanClick(x, y) {
-    // Use cliclick if available, fallback to AppleScript
+    const cx = validateCoord(x, 'x');
+    const cy = validateCoord(y, 'y');
     try {
-      execSync(`which cliclick`, { stdio: 'ignore' });
-      execSync(`cliclick m:${x},${y} c:${x},${y}`);
+      execFileSync('which', ['cliclick'], { stdio: 'ignore' });
+      execFileSync('cliclick', [`m:${cx},${cy}`, `c:${cx},${cy}`]);
     } catch {
-      execSync(`osascript -e '
-        tell application "System Events"
-          set mouseLocation to {${x}, ${y}}
-          click at mouseLocation
-        end tell
-      '`);
+      osascript(`tell application "System Events" to click at {${cx}, ${cy}}`);
     }
   },
 
-  /** Drag from one point to another */
   drag(fromX, fromY, toX, toY) {
+    const fx = validateCoord(fromX, 'fromX');
+    const fy = validateCoord(fromY, 'fromY');
+    const tx = validateCoord(toX, 'toX');
+    const ty = validateCoord(toY, 'toY');
     try {
-      execSync(`which cliclick`, { stdio: 'ignore' });
-      execSync(`cliclick dd:${fromX},${fromY} du:${toX},${toY}`);
+      execFileSync('which', ['cliclick'], { stdio: 'ignore' });
+      execFileSync('cliclick', [`dd:${fx},${fy}`, `du:${tx},${ty}`]);
     } catch {
-      execSync(`osascript -e '
-        tell application "System Events"
-          click at {${fromX}, ${fromY}}
-          delay 0.2
-          click at {${toX}, ${toY}}
-        end tell
-      '`);
+      osascript(`tell application "System Events"
+        click at {${fx}, ${fy}}
+        delay 0.2
+        click at {${tx}, ${ty}}
+      end tell`);
     }
   },
 
-  /** Scroll in the frontmost app. direction: 'up' | 'down' | 'left' | 'right', amount: pixels */
   scroll(appName, direction = 'down', amount = 5) {
-    this.activate(appName);
-    const dirMap = { down: '0, -', up: '0, ', left: ', 0', right: '-, 0' };
-    const prefix = dirMap[direction] || '0, -';
-    // Use AppleScript mouse scroll events via cliclick or osascript
-    try {
-      execSync(`which cliclick`, { stdio: 'ignore' });
-      const axis = (direction === 'up' || direction === 'down') ? 'y' : 'x';
-      const val = (direction === 'down' || direction === 'right') ? -amount : amount;
-      execSync(`cliclick "kd:fn" "w:50" "ku:fn"`);
-      // cliclick doesn't support scroll directly; use AppleScript CGEvent
-      throw new Error('fallback');
-    } catch {
-      // Use Python bridge for precise scroll events
-      const py = `
+    const name = validateAppName(appName);
+    const dir = ['up','down','left','right'].includes(direction) ? direction : 'down';
+    const amt = Math.max(1, Math.min(100, Number(amount) || 5));
+    this.activate(name);
+    const delta = dir === 'up' ? amt : (dir === 'down' ? -amt : 0);
+    const py = `
 import Quartz
-from Quartz import CGEventCreateScrollWheelEvent, kCGScrollEventUnitPixel, kCGEventScrollWheel
+from Quartz import CGEventCreateScrollWheelEvent, kCGScrollEventUnitPixel
 import time
-scrollAmount = ${direction === 'up' || direction === 'left' ? amount : -amount}
-for i in range(${Math.ceil(amount / 3)}):
-    event = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitPixel, 1, ${direction === 'up' ? amount : -amount})
+for i in range(${Math.ceil(amt / 3)}):
+    event = CGEventCreateScrollWheelEvent(None, kCGScrollEventUnitPixel, 1, ${delta})
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
     time.sleep(0.02)
 `;
-      try {
-        execSync(`python3 -c "${py.replace(/"/g, '\\"').replace(/\n/g, '\n')}"`, { timeout: 5000 });
-      } catch {
-        // Final fallback: arrow keys to scroll
-        const keyCode = direction === 'down' ? 125 : direction === 'up' ? 126 : direction === 'left' ? 123 : 124;
-        for (let i = 0; i < Math.min(amount, 20); i++) {
-          execSync(`osascript -e 'tell application "System Events" to key code ${keyCode}'`);
-        }
+    try {
+      execFileSync('python3', ['-c', py], { timeout: 5000 });
+    } catch {
+      const keyCode = dir === 'down' ? 125 : dir === 'up' ? 126 : dir === 'left' ? 123 : 124;
+      for (let i = 0; i < Math.min(amt, 20); i++) {
+        osascript(`tell application "System Events" to key code ${keyCode}`);
       }
     }
   },
 
-  /** Scroll to top/bottom of a window */
   scrollTo(appName, position = 'top') {
-    this.activate(appName);
-    if (position === 'top') {
-      this.pressKeys(appName, 'cmd+up');
-    } else if (position === 'bottom') {
-      this.pressKeys(appName, 'cmd+down');
-    }
+    const name = validateAppName(appName);
+    this.activate(name);
+    if (position === 'top') this.pressKeys(name, 'cmd+up');
+    else if (position === 'bottom') this.pressKeys(name, 'cmd+down');
   },
 };
 
@@ -468,23 +552,36 @@ for i in range(${Math.ceil(amount / 3)}):
 // ════════════════════════════════════════════════
 
 const win = {
-  _ps(script) {
-    return execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"')}"`, { encoding: 'utf-8' }).trim();
+  /** Probe Windows elevation state. Returns { ok, elevated, hint? }. */
+  checkPermissions() {
+    try {
+      const out = powershell(`([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator).ToString()`);
+      const elevated = out.trim() === 'True';
+      return {
+        ok: true,
+        elevated,
+        hint: elevated ? null : 'If the target app is running elevated (as Administrator), this script must also run elevated to interact with it.',
+      };
+    } catch (e) {
+      return { ok: false, error: e.message, hint: 'PowerShell unavailable. Are you on Windows?' };
+    }
   },
 
   listApps() {
-    const raw = this._ps(`
+    const raw = powershell(`
       Add-Type -AssemblyName UIAutomationClient
-      Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | 
+      Get-Process | Where-Object {$_.MainWindowTitle -ne ''} |
       Select-Object ProcessName, MainWindowTitle, Id | ConvertTo-Json
     `);
     return JSON.parse(raw || '[]');
   },
 
   activate(appName) {
-    this._ps(`
-      $proc = Get-Process | Where-Object {$_.MainWindowTitle -like '*${appName}*'} | Select-Object -First 1
-      if ($proc) { 
+    const name = validateAppName(appName);
+    const safe = sanitizePS(name);
+    powershell(`
+      $proc = Get-Process | Where-Object {$_.MainWindowTitle -like '*${safe}*'} | Select-Object -First 1
+      if ($proc) {
         Add-Type -Name Win -Namespace Native -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);'
         [Native.Win]::SetForegroundWindow($proc.MainWindowHandle)
       }
@@ -492,76 +589,177 @@ const win = {
   },
 
   scanApp(appName) {
-    this.activate(appName);
-    const raw = this._ps(`
+    const name = validateAppName(appName);
+    const safe = sanitizePS(name);
+    this.activate(name);
+    const raw = powershell(`
       Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
       $auto = [System.Windows.Automation.AutomationElement]
       $root = $auto::RootElement
-      $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${appName}')
+      $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safe}')
       $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
       if (-not $app) { '[]'; return }
       $all = $app.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
       $result = @()
       foreach ($el in $all) {
-        $name = $el.Current.Name
+        $n = $el.Current.Name
         $type = $el.Current.ControlType.ProgrammaticName
-        $result += @{ role = $type; label = $name }
+        $result += @{ role = $type; label = $n }
       }
       $result | ConvertTo-Json -Depth 3
     `);
     return JSON.parse(raw || '[]');
   },
 
+  /** Click a UI element by Name via UI Automation InvokePattern (background, no foregrounding). */
+  clickElement(appName, label) {
+    const name = validateAppName(appName);
+    const lbl = validateLabel(label);
+    const safeName = sanitizePS(name);
+    const safeLbl = sanitizePS(lbl);
+    const raw = powershell(`
+      Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+      $auto = [System.Windows.Automation.AutomationElement]
+      $root = $auto::RootElement
+      $appCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeName}')
+      $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $appCond)
+      if (-not $app) { ConvertTo-Json @{ clicked = $false; error = 'app not found' }; return }
+      $lblCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeLbl}')
+      $el = $app.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
+      if (-not $el) { ConvertTo-Json @{ clicked = $false; error = 'element not found' }; return }
+      $invoke = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+        $invoke.Invoke()
+        ConvertTo-Json @{ clicked = $true; method = 'InvokePattern' }; return
+      }
+      $toggle = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
+        $toggle.Toggle()
+        ConvertTo-Json @{ clicked = $true; method = 'TogglePattern' }; return
+      }
+      $sel = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$sel)) {
+        $sel.Select()
+        ConvertTo-Json @{ clicked = $true; method = 'SelectionItemPattern' }; return
+      }
+      ConvertTo-Json @{ clicked = $false; error = 'no invokable pattern' }
+    `);
+    return JSON.parse(raw || '{}');
+  },
+
+  /** Type into a specific field by label via UI Automation ValuePattern. */
+  typeIntoField(appName, fieldLabel, text) {
+    const name = validateAppName(appName);
+    const lbl = validateLabel(fieldLabel, 'fieldLabel');
+    const txt = validateLabel(typeof text === 'string' ? text : String(text), 'text');
+    const safeName = sanitizePS(name);
+    const safeLbl = sanitizePS(lbl);
+    const safeTxt = sanitizePS(txt);
+    const raw = powershell(`
+      Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+      $auto = [System.Windows.Automation.AutomationElement]
+      $root = $auto::RootElement
+      $appCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeName}')
+      $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $appCond)
+      if (-not $app) { ConvertTo-Json @{ typed = $false; error = 'app not found' }; return }
+      $lblCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeLbl}')
+      $el = $app.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
+      if (-not $el) { ConvertTo-Json @{ typed = $false; error = 'field not found' }; return }
+      $val = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$val)) {
+        if ($val.Current.IsReadOnly) { ConvertTo-Json @{ typed = $false; error = 'field is read-only' }; return }
+        $val.SetValue('${safeTxt}')
+        ConvertTo-Json @{ typed = $true; method = 'ValuePattern' }; return
+      }
+      ConvertTo-Json @{ typed = $false; error = 'field does not support ValuePattern' }
+    `);
+    return JSON.parse(raw || '{}');
+  },
+
+  /** Type text. ASCII without SendKeys-reserved chars → SendKeys; everything else → clipboard paste. */
   typeText(appName, text) {
-    this.activate(appName);
-    this._ps(`
+    const name = validateAppName(appName);
+    const str = typeof text === 'string' ? text : String(text);
+    this.activate(name);
+
+    // SendKeys interprets +^%~(){}[] as modifiers. Anything Unicode or with those chars → clipboard paste.
+    const sendKeysSafe = /^[A-Za-z0-9 \t\r\n\.,?!@#\$&\*\-_=:;'"\/\\<>|]*$/.test(str);
+    if (!sendKeysSafe || str.length > 500) {
+      win._pasteText(str);
+      return;
+    }
+    powershell(`
       Add-Type -AssemblyName System.Windows.Forms
-      [System.Windows.Forms.SendKeys]::SendWait('${text.replace(/'/g, "''")}')
+      [System.Windows.Forms.SendKeys]::SendWait('${sanitizePS(str)}')
+    `);
+  },
+
+  /** Internal: paste text via clipboard + Ctrl+V. Best-effort restore of prior clipboard. */
+  _pasteText(text) {
+    const safeTxt = sanitizePS(text);
+    powershell(`
+      Add-Type -AssemblyName System.Windows.Forms
+      $prev = $null
+      try { $prev = Get-Clipboard -Raw -ErrorAction Stop } catch {}
+      Set-Clipboard -Value '${safeTxt}'
+      [System.Windows.Forms.SendKeys]::SendWait('^v')
+      Start-Sleep -Milliseconds 150
+      if ($prev -ne $null) { Set-Clipboard -Value $prev }
     `);
   },
 
   pressKeys(appName, shortcut) {
-    this.activate(appName);
-    // Convert to SendKeys format
+    const name = validateAppName(appName);
+    if (typeof shortcut !== 'string') throw new Error('shortcut must be a string');
+    this.activate(name);
     const map = { 'ctrl': '^', 'alt': '%', 'shift': '+', 'cmd': '^' };
-    const parts = shortcut.split('+');
+    const parts = shortcut.split('+').map(s => s.trim());
     const key = parts.pop();
-    let prefix = parts.map(p => map[p.toLowerCase()] || '').join('');
-    this._ps(`
+    if (!/^[A-Za-z0-9{}]+$/.test(key)) throw new Error(`Invalid key: ${key}`);
+    const prefix = parts.map(p => map[p.toLowerCase()] || '').join('');
+    powershell(`
       Add-Type -AssemblyName System.Windows.Forms
-      [System.Windows.Forms.SendKeys]::SendWait('${prefix}${key}')
+      [System.Windows.Forms.SendKeys]::SendWait('${sanitizePS(prefix + key)}')
     `);
   },
 
   screenshotApp(appName, outputPath) {
-    this.activate(appName);
-    this._ps(`
+    const name = validateAppName(appName);
+    if (typeof outputPath !== 'string' || outputPath.length > 1024) throw new Error('Invalid outputPath');
+    this.activate(name);
+    const safePath = sanitizePS(outputPath);
+    powershell(`
       Add-Type -AssemblyName System.Windows.Forms
       $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
       $bitmap = New-Object System.Drawing.Bitmap($screen.Width, $screen.Height)
       $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
       $graphics.CopyFromScreen(0, 0, 0, 0, $screen.Size)
-      $bitmap.Save('${outputPath}')
+      $bitmap.Save('${safePath}')
     `);
     return outputPath;
   },
 
   openApp(appName) {
-    this._ps(`Start-Process "${appName}"`);
+    const name = validateAppName(appName);
+    powershell(`Start-Process '${sanitizePS(name)}'`);
   },
 
   scroll(appName, direction = 'down', amount = 5) {
-    this.activate(appName);
-    const key = direction === 'down' ? '{PGDN}' : direction === 'up' ? '{PGUP}' : direction === 'left' ? '{LEFT}' : '{RIGHT}';
-    for (let i = 0; i < Math.min(amount, 10); i++) {
-      this._ps(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${key}')`);
+    const name = validateAppName(appName);
+    const dir = ['up','down','left','right'].includes(direction) ? direction : 'down';
+    const amt = Math.max(1, Math.min(100, Number(amount) || 5));
+    this.activate(name);
+    const key = dir === 'down' ? '{PGDN}' : dir === 'up' ? '{PGUP}' : dir === 'left' ? '{LEFT}' : '{RIGHT}';
+    for (let i = 0; i < Math.min(amt, 10); i++) {
+      powershell(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${key}')`);
     }
   },
 
   scrollTo(appName, position = 'top') {
-    this.activate(appName);
+    const name = validateAppName(appName);
+    this.activate(name);
     const key = position === 'top' ? '{HOME}' : '{END}';
-    this._ps(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^${key}')`);
+    powershell(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^${key}')`);
   },
 };
 
@@ -576,58 +774,29 @@ module.exports = {
   platform: PLATFORM,
   isSupported: !!desktop,
 
-  /** List all running apps with windows */
+  withRetry,
+
+  /** Probe permissions on the current platform. Call this first on startup. */
+  checkPermissions: () => desktop?.checkPermissions?.() || { ok: false, hint: `Platform ${PLATFORM} not supported` },
+
   listApps: () => desktop?.listApps() || [],
-
-  /** Bring app to front */
   activate: (app) => desktop?.activate(app),
-
-  /** Open an application by name */
   openApp: (app) => desktop?.openApp(app),
-
-  /** Scan an app's entire UI tree */
   scanApp: (app) => desktop?.scanApp(app),
-
-  /** Click a button/element by its label */
-  clickElement: (app, label) => desktop?.clickElement(app, label),
-
-  /** Click at screen coordinates */
-  clickAt: (x, y) => desktop?.clickAt?.(x, y) || desktop?.humanClick?.(x, y),
-
-  /** Type text into the currently focused field */
+  clickElement: (app, label) => desktop?.clickElement?.(app, label),
+  clickAt: (x, y) => desktop?.clickAt?.(x, y) ?? desktop?.humanClick?.(x, y),
   typeText: (app, text) => desktop?.typeText(app, text),
-
-  /** Type into a specific field by its label */
   typeIntoField: (app, field, text) => desktop?.typeIntoField?.(app, field, text),
-
-  /** Press keyboard shortcut (e.g., "cmd+s") */
   pressKeys: (app, shortcut) => desktop?.pressKeys(app, shortcut),
-
-  /** Click a menu item (e.g., "File > Save As") */
   clickMenu: (app, menuPath) => desktop?.clickMenu?.(app, menuPath),
-
-  /** Take screenshot of an app */
   screenshotApp: (app, output) => desktop?.screenshotApp(app, output || `screenshot_${Date.now()}.png`),
-
-  /** Get frontmost app */
   getFrontApp: () => desktop?.getFrontApp?.() || null,
-
-  /** Move/resize window */
   moveWindow: (app, x, y, w, h) => desktop?.moveWindow?.(app, x, y, w, h),
-
-  /** Run raw AppleScript (macOS only) */
   runAppleScript: (script) => desktop?.runAppleScript?.(script),
-
-  /** Scroll in an app: direction = 'up'|'down'|'left'|'right', amount = intensity (1-20) */
   scroll: (app, direction, amount) => desktop?.scroll?.(app, direction, amount),
-
-  /** Scroll to top or bottom */
   scrollTo: (app, position) => desktop?.scrollTo?.(app, position),
-
-  /** Drag from one point to another */
   drag: (fromX, fromY, toX, toY) => desktop?.drag?.(fromX, fromY, toX, toY),
 
-  /** Synthesize agent tools from scanned desktop elements */
   synthesizeTools(elements) {
     if (!Array.isArray(elements)) return [];
     const tools = [];
@@ -637,15 +806,15 @@ module.exports = {
 
     buttons.forEach(b => {
       if (b.label) {
-        const name = b.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-        if (name) tools.push({ name: `click_${name}`, kind: 'action', element: b.label, description: b.description || `Click ${b.label}`, actions: b.actions || [] });
+        const slug = b.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        if (slug) tools.push({ name: `click_${slug}`, kind: 'action', element: b.label, description: b.description || `Click ${b.label}`, actions: b.actions || [] });
       }
     });
 
     fields.forEach(f => {
       if (f.label) {
-        const name = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-        if (name) tools.push({ name: `type_${name}`, kind: 'input', element: f.label, description: f.description || `Type into ${f.label}`, params: { text: 'string' } });
+        const slug = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        if (slug) tools.push({ name: `type_${slug}`, kind: 'input', element: f.label, description: f.description || `Type into ${f.label}`, params: { text: 'string' } });
       }
     });
 

@@ -1,0 +1,59 @@
+{
+  "agentdom": "3.0.0",
+  "name": "AgentDOM Demo App",
+  "description": "Example agent manifest showing how to declare your app as agent-ready",
+  "homepage": "https://agentdom.dev",
+  "auth": {
+    "methods": ["form", "oauth2", "agent_token"],
+    "login_url": "/login",
+    "signup_url": "/signup",
+    "agent_token": {
+      "endpoint": "/auth/agent-token",
+      "method": "POST",
+      "scopes": ["read", "write", "admin"],
+      "ttl_seconds": 3600,
+      "refresh": true
+    },
+    "oauth2": {
+      "authorize_url": "/oauth/authorize",
+      "token_url": "/oauth/token",
+      "scopes": ["agent:read", "agent:write", "agent:admin"],
+      "grant_types": ["authorization_code", "client_credentials"]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "search",
+      "description": "Search for content",
+      "url": "/search",
+      "intent": "search",
+      "requires_auth": false
+    },
+    {
+      "name": "create_post",
+      "description": "Create a new post or article",
+      "url": "/new",
+      "intent": "create",
+      "requires_auth": true
+    },
+    {
+      "name": "manage_settings",
+      "description": "View and update account settings",
+      "url": "/settings",
+      "intent": "update",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 60,
+    "concurrent_sessions": 3,
+    "daily_limit": 5000
+  },
+  "policies": {
+    "allow_autonomous": true,
+    "require_user_consent": false,
+    "safe_actions_only": false,
+    "allowed_agents": ["*"]
+  },
+  "contact": "agents@agentdom.dev"
+}

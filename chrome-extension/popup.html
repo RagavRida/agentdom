@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AgentDOM</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 360px; font-family: 'Inter', -apple-system, sans-serif; background: #0f0f17; color: #e4e4ef; }
+    .header { padding: 16px; background: linear-gradient(135deg, #1a1a2e, #16213e); border-bottom: 1px solid #2a2a4a; display: flex; align-items: center; gap: 10px; }
+    .header h1 { font-size: 16px; font-weight: 700; background: linear-gradient(90deg, #00d4aa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .header .v { font-size: 10px; color: #666; }
+    .section { padding: 12px 16px; border-bottom: 1px solid #1a1a2e; }
+    .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; }
+    .stat { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+    .stat .val { color: #00d4aa; font-weight: 600; }
+    .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin: 4px 0; transition: all 0.2s; }
+    .btn-primary { background: linear-gradient(135deg, #00d4aa, #00b894); color: #000; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,212,170,0.3); }
+    .btn-secondary { background: #1a1a2e; color: #a78bfa; border: 1px solid #2a2a4a; }
+    .btn-secondary:hover { background: #2a2a4a; }
+    .output { background: #0a0a12; border-radius: 8px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8888a0; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin-top: 8px; display: none; }
+    .output.visible { display: block; }
+    .form { display: flex; flex-direction: column; gap: 6px; }
+    .form label { font-size: 11px; color: #666; }
+    .form input, .form textarea { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 8px 10px; color: #e4e4ef; font-size: 13px; outline: none; font-family: inherit; }
+    .form input:focus, .form textarea:focus { border-color: #00d4aa; }
+    .form textarea { resize: vertical; min-height: 60px; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .badge-green { background: #00d4aa20; color: #00d4aa; }
+    .badge-purple { background: #a78bfa20; color: #a78bfa; }
+    .items { max-height: 150px; overflow-y: auto; }
+    .item { padding: 6px 8px; border-radius: 6px; background: #1a1a2e; margin: 4px 0; font-size: 12px; cursor: pointer; transition: background 0.15s; }
+    .item:hover { background: #2a2a4a; }
+    .item .label { color: #e4e4ef; }
+    .item .sel { color: #666; font-size: 10px; font-family: monospace; }
+    .item .intent { color: #a78bfa; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ AgentDOM</h1>
+    <span class="v">v3.0</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Page Info</div>
+    <div class="stat"><span>Title</span><span class="val" id="pageTitle">—</span></div>
+    <div class="stat"><span>Forms</span><span class="val" id="formCount">—</span></div>
+    <div class="stat"><span>Actions</span><span class="val" id="actionCount">—</span></div>
+  </div>
+
+  <div class="section">
+    <button class="btn btn-primary" id="scanBtn">🔍 Scan Page</button>
+    <button class="btn btn-secondary" id="copyBtn">📋 Copy Schema as JSON</button>
+    <div class="output" id="output"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Actions Found</div>
+    <div class="items" id="actionsList"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Forms Found</div>
+    <div class="items" id="formsList"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">🔧 Generated Tools</div>
+    <div id="toolsSummary" style="font-size:11px; color:#8888a0; margin-bottom:6px;"></div>
+    <div class="items" id="toolsList"></div>
+  </div>
+
+  <script>
+    let lastSchema = null;
+
+    document.getElementById('scanBtn').addEventListener('click', () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+        chrome.tabs.sendMessage(tab.id, { type: 'scanWithTools' }, (result) => {
+          if (!result) {
+            // Fallback to basic scan
+            chrome.tabs.sendMessage(tab.id, { type: 'scan' }, handleScan.bind(null, tab));
+            return;
+          }
+          lastSchema = result;
+          handleScan(tab, result);
+          renderTools(result.tools || [], result.tool_summary || '', result.page_type || '');
+        });
+      });
+    });
+
+    function handleScan(tab, schema) {
+      if (!schema) {
+        document.getElementById('output').textContent = 'No response — reload the page';
+        document.getElementById('output').classList.add('visible');
+        return;
+      }
+      lastSchema = schema;
+      document.getElementById('pageTitle').textContent = schema.page?.meta?.title?.slice(0, 30) || '—';
+      document.getElementById('formCount').textContent = schema.page?.forms?.length || 0;
+      document.getElementById('actionCount').textContent = schema.page?.actions?.length || 0;
+
+      // Render actions
+      const al = document.getElementById('actionsList');
+      al.innerHTML = '';
+      (schema.page?.actions || []).slice(0, 20).forEach(a => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `<span class="label">${a.label || '?'}</span> <span class="intent">${a.intent || ''}</span><br><span class="sel">${a.selector?.slice(0, 60) || ''}</span>`;
+        div.onclick = () => {
+          chrome.tabs.sendMessage(tab.id, { type: 'click', selector: a.selector });
+        };
+        al.appendChild(div);
+      });
+
+      // Render forms
+      const fl = document.getElementById('formsList');
+      fl.innerHTML = '';
+      (schema.page?.forms || []).forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `<span class="badge badge-purple">${f.intent || 'form'}</span> <span class="label">${f.id || '(no id)'}</span> <span class="sel">${f.fields?.length || 0} fields</span>`;
+        fl.appendChild(div);
+      });
+
+      document.getElementById('output').textContent = JSON.stringify(schema, null, 2);
+      document.getElementById('output').classList.add('visible');
+    }
+
+    function renderTools(tools, summary, pageType) {
+      const ts = document.getElementById('toolsSummary');
+      ts.textContent = summary || '';
+      if (pageType) {
+        ts.innerHTML = `<span class="badge badge-green">${pageType}</span> ${summary || ''}`;
+      }
+
+      const tl = document.getElementById('toolsList');
+      tl.innerHTML = '';
+      tools.forEach(tool => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        const paramNames = Object.keys(tool.params || {});
+        const sig = paramNames.length > 0 ? `(${paramNames.join(', ')})` : '()';
+        div.innerHTML = `<span class="label" style="color:#00d4aa; font-family:monospace;">${tool.name}${sig}</span><br><span class="sel">${tool.description?.slice(0, 80) || ''}</span>`;
+        tl.appendChild(div);
+      });
+
+      if (tools.length === 0) {
+        tl.innerHTML = '<div class="item"><span class="sel">Scan a page to generate tools</span></div>';
+      }
+    }
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      if (lastSchema) {
+        navigator.clipboard.writeText(JSON.stringify(lastSchema, null, 2));
+        document.getElementById('copyBtn').textContent = '✓ Copied!';
+        setTimeout(() => { document.getElementById('copyBtn').textContent = '📋 Copy Schema as JSON'; }, 1500);
+      }
+    });
+
+    // Auto-scan on open
+    document.getElementById('scanBtn').click();
+  </script>
+</body>
+</html>

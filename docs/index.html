@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentDocs — Make Your App Agent-Ready</title>
+  <meta name="description" content="Developer documentation for integrating AgentDOM into your website or app. Enable AI agents to authenticate, interact, and use your service programmatically.">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">⚡ Agent<span>Docs</span></a>
+    <div class="nav-links">
+      <a href="#quickstart">Quick Start</a>
+      <a href="#embed">Embed</a>
+      <a href="#auth">Agent Auth</a>
+      <a href="#tools">Dynamic Tools</a>
+      <a href="#api">API Reference</a>
+      <a href="https://github.com/RagavRida/agentdom" class="nav-gh">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero" id="top">
+  <div class="hero-glow"></div>
+  <div class="container">
+    <div class="badge">Open Source · MIT License</div>
+    <h1>Make your app <em>agent-ready</em></h1>
+    <p class="hero-sub">One script tag. Any AI agent can now discover, authenticate, and use your app programmatically. No custom API needed.</p>
+    <div class="hero-code">
+      <div class="code-header"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span> <span class="code-label">Add to your site</span></div>
+      <pre><code>&lt;script src="https://agentdom-docs.s3.amazonaws.com/v3/agentdom.min.js"&gt;&lt;/script&gt;</code></pre>
+    </div>
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn btn-primary">Get Started</a>
+      <a href="#how-it-works" class="btn btn-ghost">How It Works →</a>
+    </div>
+  </div>
+</header>
+
+<!-- How It Works -->
+<section class="section" id="how-it-works">
+  <div class="container">
+    <h2>How it works</h2>
+    <p class="section-sub">AgentDOM scans your page and creates a machine-readable schema. Agents use this schema to generate page-specific tools — no CSS selectors needed.</p>
+    <div class="flow-grid">
+      <div class="flow-card">
+        <div class="flow-num">1</div>
+        <h3>You add the script</h3>
+        <p>One line in your HTML. AgentDOM runs in the background and exposes <code>AgentDOM.scan()</code> on your page.</p>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-card">
+        <div class="flow-num">2</div>
+        <h3>Agent discovers your UI</h3>
+        <p>The agent calls <code>scanWithTools()</code> and gets auto-generated tools like <code>login(email, password)</code>.</p>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-card">
+        <div class="flow-num">3</div>
+        <h3>Agent interacts naturally</h3>
+        <p>It fills forms, clicks buttons, and authenticates — with human-like mouse movements and keystrokes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section class="section section-dark" id="quickstart">
+  <div class="container">
+    <h2>Quick Start</h2>
+    <p class="section-sub">Three ways to add AgentDOM to your app.</p>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="cdn">CDN</button>
+      <button class="tab" data-tab="npm">NPM</button>
+      <button class="tab" data-tab="meta">Meta Tag</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-cdn">
+      <h3>Option 1: CDN Script Tag</h3>
+      <p>Add this before <code>&lt;/body&gt;</code> in your HTML:</p>
+      <div class="code-block">
+        <pre><code>&lt;!-- AgentDOM v3 — makes your site agent-ready --&gt;
+&lt;script src="https://agentdom-docs.s3.amazonaws.com/v3/agentdom.min.js"&gt;&lt;/script&gt;</code></pre>
+      </div>
+      <p>That's it. Any agent using AgentDOM can now scan and interact with your page.</p>
+    </div>
+
+    <div class="tab-panel" id="tab-npm">
+      <h3>Option 2: NPM Package</h3>
+      <div class="code-block">
+        <pre><code>npm install agentdom</code></pre>
+      </div>
+      <p>Then in your app:</p>
+      <div class="code-block">
+        <pre><code>// React / Next.js / Vue / Svelte
+import 'agentdom';
+
+// Or require
+require('agentdom');</code></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-meta">
+      <h3>Option 3: Agent-Ready Meta Tag</h3>
+      <p>Declare your site as agent-ready without loading the full runtime:</p>
+      <div class="code-block">
+        <pre><code>&lt;!-- Tell agents your site supports AgentDOM --&gt;
+&lt;meta name="agentdom" content="enabled"&gt;
+&lt;meta name="agentdom:auth" content="oauth2,form"&gt;
+&lt;meta name="agentdom:version" content="3.0.0"&gt;
+
+&lt;!-- Optional: link to your agent manifest --&gt;
+&lt;link rel="agentdom-manifest" href="/agentdom.json"&gt;</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Embed & Configure -->
+<section class="section" id="embed">
+  <div class="container">
+    <h2>Embed & Configure</h2>
+    <p class="section-sub">Customize AgentDOM behavior for your specific app.</p>
+
+    <h3>Agent Manifest (<code>/agentdom.json</code>)</h3>
+    <p>Place this file at your site root to tell agents what your app offers:</p>
+    <div class="code-block">
+      <pre><code>{
+  "agentdom": "3.0.0",
+  "name": "Your App",
+  "description": "What your app does — agents read this",
+  "auth": {
+    "methods": ["form", "oauth2", "api_key"],
+    "login_url": "/login",
+    "signup_url": "/signup",
+    "oauth2": {
+      "authorize_url": "/oauth/authorize",
+      "token_url": "/oauth/token",
+      "scopes": ["read", "write", "profile"]
+    }
+  },
+  "capabilities": [
+    { "name": "search", "url": "/search", "description": "Search products" },
+    { "name": "checkout", "url": "/checkout", "description": "Purchase items" },
+    { "name": "profile", "url": "/settings", "description": "Manage account" }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 60,
+    "concurrent_sessions": 3
+  },
+  "contact": "agents@yourapp.com"
+}</code></pre>
+    </div>
+
+    <h3>Annotate Your Forms for Better Discovery</h3>
+    <p>Add <code>data-agentdom-*</code> attributes so agents understand your forms instantly:</p>
+    <div class="code-block">
+      <pre><code>&lt;form id="loginForm" data-agentdom-intent="authenticate"&gt;
+  &lt;input name="email" type="email" 
+         aria-label="Email address"
+         data-agentdom-field="email" required&gt;
+  
+  &lt;input name="password" type="password" 
+         aria-label="Password"
+         data-agentdom-field="password" required&gt;
+  
+  &lt;button type="submit" data-agentdom-action="login"&gt;
+    Log In
+  &lt;/button&gt;
+&lt;/form&gt;
+
+&lt;!-- Agent auto-generates: login(email, password) --&gt;</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Agent Auth -->
+<section class="section section-dark" id="auth">
+  <div class="container">
+    <h2>Agent Authentication</h2>
+    <p class="section-sub">Let agents authenticate with your service securely.</p>
+
+    <div class="auth-grid">
+      <div class="auth-card">
+        <h3>🔐 Form-Based Auth</h3>
+        <p>Agent fills your login form directly. No API changes needed — just annotate your form.</p>
+        <div class="code-block code-sm">
+          <pre><code>// Agent calls the auto-generated tool:
+login(email: "user@company.com", 
+      password: "agent-token-xyz")
+
+// AgentDOM fills form + submits
+// Agent gets authenticated session</code></pre>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <h3>🔑 OAuth2 for Agents</h3>
+        <p>Standard OAuth2 flow with agent-specific scopes. Recommended for production.</p>
+        <div class="code-block code-sm">
+          <pre><code>// In your agentdom.json:
+"auth": {
+  "methods": ["oauth2"],
+  "oauth2": {
+    "authorize_url": "/oauth/authorize",
+    "token_url": "/oauth/token",
+    "client_id": "agentdom-client",
+    "scopes": ["agent:read", "agent:write"]
+  }
+}</code></pre>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <h3>🎫 API Key Auth</h3>
+        <p>Issue agent-specific API keys with limited scopes and rate limits.</p>
+        <div class="code-block code-sm">
+          <pre><code>// Agent passes key via header or form
+&lt;form data-agentdom-intent="authenticate"&gt;
+  &lt;input name="api_key" type="text"
+         data-agentdom-field="api_key"
+         aria-label="API Key"&gt;
+  &lt;button type="submit"&gt;Connect&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <h3>🛡️ Agent Tokens</h3>
+        <p>A new standard: issue short-lived tokens specifically for agent sessions.</p>
+        <div class="code-block code-sm">
+          <pre><code>// Endpoint for agents to get tokens
+POST /auth/agent-token
+{
+  "agent_id": "agentdom-v3",
+  "scopes": ["read", "write"],
+  "ttl": 3600
+}
+// Returns: { "token": "at_...", 
+//            "expires": "..." }</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Dynamic Tools -->
+<section class="section" id="tools">
+  <div class="container">
+    <h2>Dynamic Tool Generation</h2>
+    <p class="section-sub">Your page's forms and buttons automatically become callable tools for any AI agent.</p>
+
+    <div class="example-grid">
+      <div class="example-card">
+        <h3>Your HTML</h3>
+        <div class="code-block code-sm">
+          <pre><code>&lt;form id="search" data-agentdom-intent="search"&gt;
+  &lt;input name="q" placeholder="Search..."&gt;
+  &lt;select name="category"&gt;
+    &lt;option&gt;All&lt;/option&gt;
+    &lt;option&gt;Products&lt;/option&gt;
+    &lt;option&gt;Docs&lt;/option&gt;
+  &lt;/select&gt;
+  &lt;button type="submit"&gt;Search&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+        </div>
+      </div>
+      <div class="example-arrow">→<br><small>AgentDOM<br>synthesizes</small></div>
+      <div class="example-card highlight">
+        <h3>Agent Gets This Tool</h3>
+        <div class="code-block code-sm">
+          <pre><code>search(
+  q: string,        // "Search..."
+  category: string   // "All" | "Products" | "Docs"
+)
+
+// Agent calls:
+search(q: "winter jackets", 
+       category: "Products")
+
+// AgentDOM fills form + clicks submit</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:40px">What gets auto-generated</h3>
+    <table class="doc-table">
+      <thead>
+        <tr><th>Your Page Has</th><th>Agent Gets</th><th>Example</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Login form</td><td><code>login(email, password)</code></td><td>Gmail, Stripe, GitHub</td></tr>
+        <tr><td>Search bar</td><td><code>search(query)</code></td><td>Google, Amazon, Docs</td></tr>
+        <tr><td>Signup form</td><td><code>create_account(name, email, password)</code></td><td>Any registration page</td></tr>
+        <tr><td>Checkout form</td><td><code>checkout(card, exp, cvc, zip)</code></td><td>Stripe, Shopify</td></tr>
+        <tr><td>Nav links</td><td><code>navigate_to(destination)</code></td><td>Dashboard, Settings</td></tr>
+        <tr><td>Action buttons</td><td><code>subscribe()</code>, <code>download()</code></td><td>SaaS apps</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- API Reference -->
+<section class="section section-dark" id="api">
+  <div class="container">
+    <h2>API Reference</h2>
+    <p class="section-sub">JavaScript API available on any page with AgentDOM embedded.</p>
+
+    <div class="api-group">
+      <h3>Schema & Discovery</h3>
+      <div class="api-item">
+        <code>AgentDOM.scan()</code>
+        <p>Returns structured JSON schema of all forms, buttons, and links on the page.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.scanWithTools()</code>
+        <p>Scan + auto-generate tools. Returns schema with <code>tools</code> array ready for any AI platform.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.synthesizeTools(schema?)</code>
+        <p>Generate tools from a schema. Returns <code>{ tools, page_type, summary }</code>.</p>
+      </div>
+    </div>
+
+    <div class="api-group">
+      <h3>Actions</h3>
+      <div class="api-item">
+        <code>AgentDOM.click(selector)</code>
+        <p>Human-like click with bezier mouse path, hover, mousedown/up sequence.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.type(selector, text, opts?)</code>
+        <p>Type with realistic keystroke timing. React-compatible.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.fillForm(formSelector, data)</code>
+        <p>Fill entire form from <code>{ fieldName: value }</code> object.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.submitForm(formSelector)</code>
+        <p>Find and click the submit button within a form.</p>
+      </div>
+      <div class="api-item">
+        <code>AgentDOM.hover(selector, duration?)</code>
+        <p>Hover with pointer events. Triggers tooltips and dropdowns.</p>
+      </div>
+    </div>
+
+    <div class="api-group">
+      <h3>Server-Side Integration</h3>
+      <table class="doc-table">
+        <thead><tr><th>Protocol</th><th>Endpoint</th><th>Use Case</th></tr></thead>
+        <tbody>
+          <tr><td>HTTP API</td><td><code>POST /tools/discover</code></td><td>Scan a URL and get generated tools</td></tr>
+          <tr><td>HTTP API</td><td><code>POST /tools/execute</code></td><td>Execute a generated tool by name</td></tr>
+          <tr><td>MCP</td><td><code>tools/list</code></td><td>Dynamic tools for Claude/Cursor</td></tr>
+          <tr><td>OpenAI</td><td>Function Calling</td><td>Tools update per turn</td></tr>
+          <tr><td>Gemini</td><td>Function Calling</td><td>Tools update per turn</td></tr>
+          <tr><td>A2A</td><td><code>/.well-known/agent.json</code></td><td>Agent Card discovery</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-logo">⚡ AgentDOM</div>
+        <p>The runtime that makes any website agent-ready.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/RagavRida/agentdom">GitHub</a>
+        <a href="https://npmjs.com/package/agentdom">NPM</a>
+        <a href="#api">API Docs</a>
+      </div>
+    </div>
+    <div class="footer-copy">MIT License · Built for the agent era</div>
+  </div>
+</footer>
+
+<script>
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const el = document.querySelector(a.getAttribute('href'));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+// Nav scroll effect
+window.addEventListener('scroll', () => {
+  document.querySelector('.nav').classList.toggle('scrolled', window.scrollY > 20);
+});
+</script>
+</body>
+</html>

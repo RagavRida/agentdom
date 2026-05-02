@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentDOM — Full Agent Runtime for Any UI</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0a0a0f; --s1:#12121a; --s2:#1a1a26; --bdr:#2a2a3a; --t:#e8e8f0; --tm:#8888a0;
+      --acc:#00d4aa; --accD:rgba(0,212,170,0.15); --accG:rgba(0,212,170,0.3);
+      --purple:#a78bfa; --orange:#fb923c; --pink:#f472b6; --blue:#60a5fa; --red:#ef4444;
+      --f:'Inter',sans-serif; --mono:'JetBrains Mono',monospace; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--f);background:var(--bg);color:var(--t);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+    /* Layout */
+    .app{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr;height:100vh}
+    .header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--s1)}
+    .logo{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--acc)}
+    .logo span{color:var(--tm);font-weight:300}
+    .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tm);font-family:var(--mono)}
+    .status-dot{width:8px;height:8px;border-radius:50%;background:var(--acc);animation:blink 2s ease infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+    /* Panels */
+    .panel{display:flex;flex-direction:column;border-right:1px solid var(--bdr);overflow:hidden}
+    .panel:last-child{border-right:none}
+    .panel-head{padding:10px 16px;background:var(--s2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:8px}
+    .dots{display:flex;gap:6px}
+    .dot{width:10px;height:10px;border-radius:50%}.dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+    .panel-label{font-size:11px;color:var(--tm);font-family:var(--mono);margin-left:6px}
+    .panel-body{flex:1;overflow-y:auto;position:relative}
+
+    /* Sample app UI */
+    .sample{padding:24px;font-family:var(--f)}
+    .sample nav{display:flex;justify-content:space-between;align-items:center;padding-bottom:16px;border-bottom:1px solid var(--bdr);margin-bottom:24px}
+    .sample .brand{font-weight:700;font-size:18px;color:var(--acc)}
+    .sample .nav-links{display:flex;gap:20px}
+    .sample .nav-links a{color:var(--tm);text-decoration:none;font-size:13px;transition:color .2s}
+    .sample .nav-links a:hover{color:var(--t)}
+    .sample h1{font-size:28px;font-weight:700;line-height:1.2;margin-bottom:8px}
+    .sample h1 em{font-style:italic;color:var(--acc)}
+    .sample .sub{color:var(--tm);font-size:14px;margin-bottom:24px;line-height:1.6}
+    .sample form{display:flex;gap:8px;margin-bottom:24px}
+    .sample input[type="email"]{flex:1;padding:12px 16px;border-radius:10px;border:1px solid var(--bdr);background:var(--s2);color:var(--t);font-size:14px;font-family:var(--f);outline:none;transition:border-color .2s}
+    .sample input[type="email"]:focus{border-color:var(--acc)}
+    .sample .cta{padding:12px 24px;border-radius:10px;background:var(--acc);color:var(--bg);border:none;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--f);transition:all .2s;white-space:nowrap}
+    .sample .cta:hover{box-shadow:0 0 20px var(--accG);transform:translateY(-1px)}
+    .sample .features{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .sample .feat{padding:16px;border-radius:12px;background:var(--s2);border:1px solid var(--bdr);transition:all .2s}
+    .sample .feat:hover{border-color:var(--acc);transform:translateY(-2px)}
+    .sample .feat h3{font-size:14px;margin-bottom:4px}
+    .sample .feat p{font-size:11px;color:var(--tm);line-height:1.5}
+    .sample .success{display:none;text-align:center;padding:20px;color:var(--acc);font-size:16px}
+    .sample .success.show{display:block}
+
+    /* Terminal / CLI */
+    .terminal{display:flex;flex-direction:column;height:100%}
+    .term-output{flex:1;overflow-y:auto;padding:16px;font-family:var(--mono);font-size:12px;line-height:1.8}
+    .term-output::-webkit-scrollbar{width:5px}
+    .term-output::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:3px}
+    .term-line{margin-bottom:2px;white-space:pre-wrap;word-break:break-all}
+    .term-line.cmd{color:var(--acc)}
+    .term-line.cmd::before{content:'❯ ';color:var(--purple)}
+    .term-line.out{color:var(--tm)}
+    .term-line.err{color:var(--red)}
+    .term-line.info{color:var(--blue)}
+    .term-line.success{color:var(--acc)}
+    .term-input-wrap{display:flex;align-items:center;padding:10px 16px;border-top:1px solid var(--bdr);background:var(--s2)}
+    .term-prompt{color:var(--purple);font-family:var(--mono);font-size:13px;margin-right:8px;flex-shrink:0}
+    .term-input{flex:1;background:transparent;border:none;color:var(--t);font-family:var(--mono);font-size:13px;outline:none}
+    .term-input::placeholder{color:#444}
+
+    /* Highlight animation on targeted elements */
+    .agentdom-highlight{outline:2px solid var(--acc)!important;outline-offset:2px;box-shadow:0 0 15px var(--accG)!important;transition:all .3s ease}
+
+    @media(max-width:800px){.app{grid-template-columns:1fr;grid-template-rows:auto 50vh 50vh}}
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div class="logo">AgentDOM <span>v2.0 runtime</span></div>
+    <div class="status"><span class="status-dot"></span>Agent connected</div>
+  </div>
+
+  <!-- LEFT: Sample UI -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <span class="panel-label">live-ui.html — Target Application</span>
+    </div>
+    <div class="panel-body" id="uiPanel">
+      <div class="sample" id="sampleApp">
+        <nav>
+          <div class="brand" id="appLogo">Launchpad</div>
+          <div class="nav-links">
+            <a href="#features" id="navFeatures">Features</a>
+            <a href="#pricing" id="navPricing">Pricing</a>
+            <a href="#docs" id="navDocs">Docs</a>
+          </div>
+        </nav>
+        <h1>Ship <em>10x faster</em> with AI</h1>
+        <p class="sub">The platform that turns your ideas into production code. Enter your email to join 2,400+ developers on the waitlist.</p>
+        <form id="signupForm">
+          <input type="email" id="emailInput" name="email" placeholder="you@company.com" aria-label="Email address" required />
+          <button class="cta" type="submit" id="submitBtn">Join Waitlist</button>
+        </form>
+        <div class="success" id="successMsg">✓ You're on the list! We'll be in touch.</div>
+        <div class="features">
+          <div class="feat" id="feat1"><h3>⚡ Instant Deploy</h3><p>Push to prod in one click</p></div>
+          <div class="feat" id="feat2"><h3>🔒 Secure by Default</h3><p>SOC2 & GDPR compliant</p></div>
+          <div class="feat" id="feat3"><h3>🤖 AI-Powered</h3><p>Code generation built in</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Agent CLI Terminal -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <span class="panel-label">agent-cli — Command Interface</span>
+    </div>
+    <div class="panel-body">
+      <div class="terminal">
+        <div class="term-output" id="termOutput"></div>
+        <div class="term-input-wrap">
+          <span class="term-prompt">❯</span>
+          <input class="term-input" id="termInput" placeholder="type a command... (try: help)" autofocus />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="agentdom.js"></script>
+<script>
+(function() {
+  const output = document.getElementById('termOutput');
+  const input = document.getElementById('termInput');
+  const cmdHistory = [];
+  let historyIdx = -1;
+
+  function addLine(text, cls = 'out') {
+    const div = document.createElement('div');
+    div.className = 'term-line ' + cls;
+    div.textContent = text;
+    output.appendChild(div);
+    output.scrollTop = output.scrollHeight;
+  }
+
+  function addJSON(obj) {
+    const text = JSON.stringify(obj, null, 2);
+    text.split('\n').forEach(l => addLine(l, 'out'));
+  }
+
+  // Welcome
+  addLine('AgentDOM v2.0 — Full Agent Runtime', 'info');
+  addLine('Type "help" for commands, or "demo" to watch an automated agent session.', 'info');
+  addLine('', 'out');
+
+  // Highlight element briefly
+  function flash(selector) {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    el.classList.add('agentdom-highlight');
+    setTimeout(() => el.classList.remove('agentdom-highlight'), 1500);
+  }
+
+  // Handle form submission in sample app
+  document.getElementById('signupForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const email = document.getElementById('emailInput').value;
+    if (email && email.includes('@')) {
+      this.style.display = 'none';
+      document.getElementById('successMsg').classList.add('show');
+      addLine(`[EVENT] Form submitted with email: ${email}`, 'success');
+    }
+  });
+
+  // CLI handler
+  async function handleCommand(cmd) {
+    addLine(cmd, 'cmd');
+    cmdHistory.push(cmd);
+    historyIdx = cmdHistory.length;
+
+    const parts = cmd.trim().split(/\s+/);
+    const verb = parts[0]?.toLowerCase();
+
+    try {
+      if (verb === 'help') {
+        addLine('─── AgentDOM CLI Commands ───', 'info');
+        addLine('  click <selector>          — Click like a human', 'out');
+        addLine('  type <selector> "text"    — Type with realistic keystrokes', 'out');
+        addLine('  hover <selector>          — Hover with mouse trail', 'out');
+        addLine('  scroll <pixels>           — Scroll page up/down', 'out');
+        addLine('  scrollto <selector>       — Scroll to element', 'out');
+        addLine('  press <key>               — Press Enter, Tab, Escape', 'out');
+        addLine('  select <sel> "value"      — Select dropdown option', 'out');
+        addLine('  fill <form> {"k":"v"}     — Fill entire form', 'out');
+        addLine('  submit <form>             — Submit a form', 'out');
+        addLine('  scan                      — Generate full page schema', 'out');
+        addLine('  snapshot                  — Capture page state', 'out');
+        addLine('  wait <selector>           — Wait for element', 'out');
+        addLine('  demo                      — Run automated demo', 'out');
+        addLine('  clear                     — Clear terminal', 'out');
+        return;
+      }
+
+      if (verb === 'clear') { output.innerHTML = ''; return; }
+
+      if (verb === 'demo') {
+        addLine('─── Running automated agent session ───', 'info');
+        addLine('Agent: "I need to sign up for the waitlist"', 'info');
+        addLine('', 'out');
+
+        await sleep(600);
+        addLine('// Step 1: Scan the page to understand it', 'info');
+        const schema = AgentDOM.scan();
+        addLine(`Found ${schema.page.forms.length} form(s), ${schema.page.actions.length} action(s)`, 'success');
+        await sleep(800);
+
+        addLine('// Step 2: Hover over features to explore', 'info');
+        await AgentDOM.hover('#feat1', 600); flash('#feat1');
+        addLine('Hovered: "Instant Deploy"', 'out');
+        await sleep(400);
+        await AgentDOM.hover('#feat2', 600); flash('#feat2');
+        addLine('Hovered: "Secure by Default"', 'out');
+        await sleep(400);
+        await AgentDOM.hover('#feat3', 600); flash('#feat3');
+        addLine('Hovered: "AI-Powered"', 'out');
+        await sleep(600);
+
+        addLine('// Step 3: Click email input', 'info');
+        await AgentDOM.click('#emailInput'); flash('#emailInput');
+        addLine('Clicked email input', 'success');
+        await sleep(400);
+
+        addLine('// Step 4: Type email with human-like timing', 'info');
+        await AgentDOM.type('#emailInput', 'agent@launchpad.ai', { minDelay: 50, maxDelay: 150 });
+        addLine('Typed: agent@launchpad.ai', 'success');
+        await sleep(600);
+
+        addLine('// Step 5: Click submit button', 'info');
+        await AgentDOM.click('#submitBtn'); flash('#submitBtn');
+        addLine('Clicked "Join Waitlist"', 'success');
+        await sleep(800);
+
+        addLine('', 'out');
+        addLine('✓ Agent completed signup flow — zero human intervention', 'success');
+        addLine('Total events dispatched: ' + AgentDOM.log().length, 'info');
+        return;
+      }
+
+      // Flash the target element
+      const selectorMatch = cmd.match(/(#[\w-]+|\.[\w-]+)/);
+      if (selectorMatch) flash(selectorMatch[1]);
+
+      const result = await AgentDOM.exec(cmd);
+      if (result && typeof result === 'object') {
+        addJSON(result);
+      } else {
+        addLine('✓ Done', 'success');
+      }
+    } catch (err) {
+      addLine('Error: ' + err.message, 'err');
+    }
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && this.value.trim()) {
+      handleCommand(this.value.trim());
+      this.value = '';
+    }
+    if (e.key === 'ArrowUp') { e.preventDefault(); if (historyIdx > 0) { historyIdx--; this.value = cmdHistory[historyIdx]; } }
+    if (e.key === 'ArrowDown') { e.preventDefault(); historyIdx++; this.value = cmdHistory[historyIdx] || ''; }
+  });
+})();
+</script>
+</body>
+</html>

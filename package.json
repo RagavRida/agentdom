@@ -1,0 +1,39 @@
+{
+  "name": "agentdom",
+  "version": "3.0.0",
+  "description": "AI-native runtime for operating any website. Gives autonomous agents a machine-readable schema of any page and human-like interaction capabilities.",
+  "main": "agentdom.js",
+  "bin": {
+    "agentdom": "./cli.js"
+  },
+  "scripts": {
+    "cli": "node cli.js",
+    "server": "node integrations/http-server.js",
+    "mcp": "node mcp-server.js",
+    "a2a": "node integrations/a2a.js",
+    "openai": "node integrations/openai.js",
+    "gemini": "node integrations/gemini.js"
+  },
+  "keywords": [
+    "ai-agent", "browser-automation", "web-agent", "mcp", "openai", "gemini",
+    "function-calling", "autonomous", "a2a", "agent-to-agent", "agentdom",
+    "puppeteer", "web-scraping", "ai-native", "schema"
+  ],
+  "author": "AgentDOM",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RagavRida/agentdom"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "uuid": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

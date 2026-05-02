@@ -1,0 +1,123 @@
+{
+  "agentdom": "3.0.0",
+  "name": "CRM Platform",
+  "description": "Customer Relationship Management — manage contacts, deals, tasks, and pipelines",
+  "homepage": "https://your-crm.com",
+
+  "auth": {
+    "methods": ["form", "oauth2", "agent_token"],
+    "login_url": "/login",
+    "agent_token": {
+      "endpoint": "/api/v1/agent-token",
+      "method": "POST",
+      "scopes": [
+        "contacts:read", "contacts:write",
+        "deals:read", "deals:write",
+        "tasks:read", "tasks:write",
+        "pipeline:read", "pipeline:write",
+        "reports:read"
+      ],
+      "ttl_seconds": 3600,
+      "refresh": true
+    },
+    "oauth2": {
+      "authorize_url": "/oauth/authorize",
+      "token_url": "/oauth/token",
+      "scopes": ["crm.contacts", "crm.deals", "crm.tasks", "crm.reports"],
+      "grant_types": ["authorization_code", "client_credentials"]
+    }
+  },
+
+  "capabilities": [
+    {
+      "name": "contacts",
+      "description": "Create, search, view, and update contacts",
+      "url": "/contacts",
+      "intent": "search",
+      "requires_auth": true,
+      "sub_actions": [
+        { "name": "create_contact", "url": "/contacts/new", "intent": "create" },
+        { "name": "search_contacts", "url": "/contacts?q=", "intent": "search" },
+        { "name": "import_contacts", "url": "/contacts/import", "intent": "upload" }
+      ]
+    },
+    {
+      "name": "deals",
+      "description": "Manage sales deals and pipeline stages",
+      "url": "/deals",
+      "intent": "search",
+      "requires_auth": true,
+      "sub_actions": [
+        { "name": "create_deal", "url": "/deals/new", "intent": "create" },
+        { "name": "move_deal_stage", "url": "/deals/:id/stage", "intent": "update" },
+        { "name": "close_deal", "url": "/deals/:id/close", "intent": "update" }
+      ]
+    },
+    {
+      "name": "tasks",
+      "description": "Create and manage follow-up tasks",
+      "url": "/tasks",
+      "intent": "search",
+      "requires_auth": true,
+      "sub_actions": [
+        { "name": "create_task", "url": "/tasks/new", "intent": "create" },
+        { "name": "complete_task", "url": "/tasks/:id/complete", "intent": "update" }
+      ]
+    },
+    {
+      "name": "pipeline",
+      "description": "View and manage sales pipeline",
+      "url": "/pipeline",
+      "intent": "search",
+      "requires_auth": true
+    },
+    {
+      "name": "reports",
+      "description": "Generate and view sales reports",
+      "url": "/reports",
+      "intent": "search",
+      "requires_auth": true
+    },
+    {
+      "name": "email",
+      "description": "Send emails to contacts",
+      "url": "/email/compose",
+      "intent": "create",
+      "requires_auth": true
+    }
+  ],
+
+  "workflows": [
+    {
+      "name": "new_lead_flow",
+      "description": "Add a new lead: create contact → create deal → create follow-up task",
+      "steps": ["create_contact", "create_deal", "create_task"]
+    },
+    {
+      "name": "close_deal_flow",
+      "description": "Close a deal: update stage → send confirmation email → create invoice",
+      "steps": ["move_deal_stage", "email", "create_task"]
+    },
+    {
+      "name": "daily_digest",
+      "description": "Get today's tasks, overdue follow-ups, and pipeline summary",
+      "steps": ["tasks", "pipeline", "reports"]
+    }
+  ],
+
+  "rate_limits": {
+    "requests_per_minute": 120,
+    "concurrent_sessions": 5,
+    "daily_limit": 10000
+  },
+
+  "policies": {
+    "allow_autonomous": true,
+    "require_user_consent": false,
+    "safe_actions_only": false,
+    "allowed_agents": ["*"],
+    "audit_log": true
+  },
+
+  "contact": "integrations@your-crm.com"
+}

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentDOM CRM Demo — Agent-Ready CRM</title>
+  <meta name="agentdom" content="enabled">
+  <meta name="agentdom:auth" content="form,agent_token">
+  <meta name="agentdom:version" content="3.0.0">
+  <link rel="agentdom-manifest" href="crm.agentdom.json">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0a0a0f;--s1:#10101a;--s2:#181825;--s3:#1e1e30;--bdr:#2a2a40;--t:#e8e8f2;--tm:#8888a0;--acc:#00d4aa;--accD:rgba(0,212,170,0.12);--purple:#a78bfa;--blue:#60a5fa;--orange:#fb923c;--red:#ef4444;--green:#34d399;--f:'Inter',sans-serif;--mono:'JetBrains Mono',monospace}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--f);background:var(--bg);color:var(--t);display:grid;grid-template-columns:220px 1fr 340px;height:100vh;overflow:hidden}
+
+    /* Sidebar */
+    .sidebar{background:var(--s1);border-right:1px solid var(--bdr);display:flex;flex-direction:column;padding:16px 0}
+    .sidebar-logo{padding:0 16px 16px;font-weight:700;font-size:18px;color:var(--acc);border-bottom:1px solid var(--bdr)}
+    .sidebar-logo span{color:var(--tm);font-size:12px;font-weight:400;display:block}
+    .sidebar-nav{flex:1;padding:12px 8px;overflow-y:auto}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--tm);font-size:13px;cursor:pointer;transition:all .2s;text-decoration:none}
+    .nav-item:hover,.nav-item.active{background:var(--s3);color:var(--t)}
+    .nav-item.active{border-left:3px solid var(--acc);color:var(--acc)}
+    .nav-item .icon{font-size:16px;width:20px;text-align:center}
+    .nav-section{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--tm);padding:16px 12px 6px;opacity:.6}
+
+    /* Main Content */
+    .main{display:flex;flex-direction:column;overflow:hidden}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--bdr);background:var(--s1)}
+    .topbar h2{font-size:16px;font-weight:600}
+    .topbar-actions{display:flex;gap:8px}
+    .btn{padding:8px 16px;border-radius:8px;border:none;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f);transition:all .2s}
+    .btn-primary{background:var(--acc);color:#000}
+    .btn-primary:hover{box-shadow:0 4px 12px rgba(0,212,170,.3)}
+    .btn-ghost{background:transparent;color:var(--tm);border:1px solid var(--bdr)}
+    .btn-ghost:hover{color:var(--t);border-color:var(--tm)}
+
+    .content{flex:1;overflow-y:auto;padding:24px}
+
+    /* Contact Cards */
+    .contact-grid{display:grid;gap:12px}
+    .contact-row{display:grid;grid-template-columns:1fr 1fr 1fr 120px 100px;align-items:center;padding:14px 16px;background:var(--s2);border:1px solid var(--bdr);border-radius:10px;font-size:13px;transition:all .2s}
+    .contact-row:hover{border-color:var(--acc)}
+    .contact-name{font-weight:600}
+    .contact-email{color:var(--tm)}
+    .contact-company{color:var(--blue)}
+    .stage-badge{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;text-align:center}
+    .stage-lead{background:var(--accD);color:var(--acc)}
+    .stage-qualified{background:rgba(96,165,250,.15);color:var(--blue)}
+    .stage-proposal{background:rgba(251,146,60,.15);color:var(--orange)}
+    .stage-closed{background:rgba(52,211,153,.15);color:var(--green)}
+    .contact-actions{display:flex;gap:6px;justify-content:flex-end}
+    .act-btn{padding:4px 8px;border-radius:6px;background:var(--s3);border:1px solid var(--bdr);color:var(--tm);font-size:11px;cursor:pointer;transition:all .15s}
+    .act-btn:hover{color:var(--acc);border-color:var(--acc)}
+
+    /* Forms */
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+    .modal-overlay.show{display:flex}
+    .modal{background:var(--s2);border:1px solid var(--bdr);border-radius:16px;padding:28px;width:460px;max-height:80vh;overflow-y:auto}
+    .modal h3{font-size:18px;margin-bottom:16px}
+    .form-group{margin-bottom:14px}
+    .form-group label{display:block;font-size:12px;color:var(--tm);margin-bottom:4px}
+    .form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 12px;background:var(--s1);border:1px solid var(--bdr);border-radius:8px;color:var(--t);font-size:13px;font-family:var(--f);outline:none;transition:border-color .2s}
+    .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--acc)}
+    .form-group textarea{resize:vertical;min-height:80px}
+    .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+
+    /* Stats */
+    .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+    .stat-card{padding:16px;background:var(--s2);border:1px solid var(--bdr);border-radius:10px}
+    .stat-card .val{font-size:28px;font-weight:700;color:var(--acc)}
+    .stat-card .lbl{font-size:12px;color:var(--tm);margin-top:2px}
+
+    /* Agent Panel */
+    .agent-panel{background:var(--s1);border-left:1px solid var(--bdr);display:flex;flex-direction:column}
+    .agent-header{padding:14px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:8px;flex-shrink:0}
+    .agent-header h3{font-size:14px;font-weight:600}
+    .agent-dot{width:8px;height:8px;border-radius:50%;background:var(--acc);animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .agent-body{flex:1;overflow-y:auto;padding:12px;min-height:0}
+    .tool-card{padding:10px 12px;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;margin-bottom:8px;transition:all .2s}
+    .tool-card:hover{border-color:var(--acc)}
+    .tool-name{font-family:var(--mono);font-size:12px;color:var(--acc);font-weight:500}
+    .tool-desc{font-size:11px;color:var(--tm);margin-top:2px}
+    .tool-params{font-family:var(--mono);font-size:10px;color:var(--purple);margin-top:4px}
+    .agent-log{height:200px;overflow-y:auto;padding:12px;border-top:1px solid var(--bdr);flex-shrink:0;background:var(--bg)}
+    .log-entry{font-family:var(--mono);font-size:11px;color:var(--tm);padding:4px 0;border-bottom:1px solid rgba(42,42,64,.3)}
+    .log-entry .action{color:var(--acc);font-weight:500}
+    .log-entry .time{color:var(--td);font-size:10px;margin-right:6px}
+    .agent-input{padding:12px;border-top:1px solid var(--bdr);display:flex;gap:8px;flex-shrink:0}
+    .agent-input input{flex:1;padding:8px 12px;background:var(--s2);border:1px solid var(--bdr);border-radius:8px;color:var(--t);font-size:12px;font-family:var(--f);outline:none}
+    .agent-input input:focus{border-color:var(--acc)}
+    .section-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--tm);padding:12px 0 6px;opacity:.6}
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">⚡ CRM<span>AgentDOM-Powered</span></div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Main</div>
+    <a class="nav-item active" data-page="contacts"><span class="icon">👤</span>Contacts</a>
+    <a class="nav-item" data-page="deals"><span class="icon">💰</span>Deals</a>
+    <a class="nav-item" data-page="tasks"><span class="icon">✅</span>Tasks</a>
+    <a class="nav-item" data-page="pipeline"><span class="icon">📊</span>Pipeline</a>
+    <div class="nav-section">Tools</div>
+    <a class="nav-item" data-page="email"><span class="icon">📧</span>Email</a>
+    <a class="nav-item" data-page="reports"><span class="icon">📈</span>Reports</a>
+    <div class="nav-section">System</div>
+    <a class="nav-item" data-page="settings"><span class="icon">⚙️</span>Settings</a>
+  </nav>
+</aside>
+
+<!-- Main Content -->
+<main class="main">
+  <div class="topbar">
+    <h2 id="pageTitle">Contacts</h2>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="searchBtn" onclick="openSearch()">🔍 Search</button>
+      <button class="btn btn-primary" id="addBtn" onclick="openAddContact()">+ New Contact</button>
+    </div>
+  </div>
+  <div class="content" id="mainContent">
+    <div class="stats-row">
+      <div class="stat-card"><div class="val">247</div><div class="lbl">Total Contacts</div></div>
+      <div class="stat-card"><div class="val">38</div><div class="lbl">Active Deals</div></div>
+      <div class="stat-card"><div class="val">$482K</div><div class="lbl">Pipeline Value</div></div>
+      <div class="stat-card"><div class="val">12</div><div class="lbl">Tasks Due Today</div></div>
+    </div>
+    <div class="contact-grid" id="contactGrid"></div>
+  </div>
+</main>
+
+<!-- Agent Panel -->
+<aside class="agent-panel">
+  <div class="agent-header">
+    <span class="agent-dot"></span>
+    <h3>🤖 AgentDOM Tools</h3>
+  </div>
+  <div class="agent-body" id="agentTools">
+    <div class="section-label">Auto-Generated from Page</div>
+  </div>
+  <div class="agent-log" id="agentLog">
+    <div class="section-label">Agent Activity Log</div>
+  </div>
+  <div class="agent-input">
+    <input type="text" placeholder="Agent command..." id="agentCmd">
+  </div>
+</aside>
+
+<!-- Add Contact Modal -->
+<div class="modal-overlay" id="addContactModal">
+  <div class="modal">
+    <h3>New Contact</h3>
+    <form id="contactForm" data-agentdom-intent="create">
+      <div class="form-group">
+        <label for="firstName">First Name</label>
+        <input type="text" id="firstName" name="first_name" aria-label="First Name" required data-agentdom-field="first_name">
+      </div>
+      <div class="form-group">
+        <label for="lastName">Last Name</label>
+        <input type="text" id="lastName" name="last_name" aria-label="Last Name" required data-agentdom-field="last_name">
+      </div>
+      <div class="form-group">
+        <label for="contactEmail">Email</label>
+        <input type="email" id="contactEmail" name="email" aria-label="Email" required data-agentdom-field="email">
+      </div>
+      <div class="form-group">
+        <label for="company">Company</label>
+        <input type="text" id="company" name="company" aria-label="Company" data-agentdom-field="company">
+      </div>
+      <div class="form-group">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone" aria-label="Phone" data-agentdom-field="phone">
+      </div>
+      <div class="form-group">
+        <label for="dealStage">Deal Stage</label>
+        <select id="dealStage" name="stage" aria-label="Deal Stage" data-agentdom-field="stage">
+          <option value="lead">Lead</option>
+          <option value="qualified">Qualified</option>
+          <option value="proposal">Proposal</option>
+          <option value="closed">Closed Won</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" aria-label="Notes" data-agentdom-field="notes" placeholder="Add any notes..."></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveContact" data-agentdom-action="create_contact">Save Contact</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Search Modal -->
+<div class="modal-overlay" id="searchModal">
+  <div class="modal">
+    <h3>Search Contacts</h3>
+    <form id="searchForm" data-agentdom-intent="search">
+      <div class="form-group">
+        <label for="searchQuery">Search</label>
+        <input type="search" id="searchQuery" name="q" aria-label="Search contacts" placeholder="Name, email, or company..." autofocus data-agentdom-field="query">
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" data-agentdom-action="search">Search</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../../agentdom.js"></script>
+<script>
+// Sample data
+const contacts = [
+  { name: 'Sarah Chen', email: 'sarah@acme.co', company: 'Acme Inc', stage: 'qualified', value: '$45K' },
+  { name: 'James Wilson', email: 'james@tech.io', company: 'TechFlow', stage: 'proposal', value: '$120K' },
+  { name: 'Maria Garcia', email: 'maria@startup.co', company: 'LaunchPad', stage: 'lead', value: '$15K' },
+  { name: 'David Kim', email: 'david@enterprise.com', company: 'Enterprise Corp', stage: 'closed', value: '$250K' },
+  { name: 'Emma Thompson', email: 'emma@design.co', company: 'DesignHub', stage: 'qualified', value: '$32K' },
+  { name: 'Alex Rivera', email: 'alex@cloud.dev', company: 'CloudScale', stage: 'proposal', value: '$78K' },
+];
+
+// Render contacts
+function renderContacts() {
+  const grid = document.getElementById('contactGrid');
+  grid.innerHTML = contacts.map(c => `
+    <div class="contact-row">
+      <span class="contact-name">${c.name}</span>
+      <span class="contact-email">${c.email}</span>
+      <span class="contact-company">${c.company}</span>
+      <span class="stage-badge stage-${c.stage}">${c.stage}</span>
+      <div class="contact-actions">
+        <button class="act-btn" data-agentdom-action="edit_contact">Edit</button>
+        <button class="act-btn" data-agentdom-action="email_contact">Email</button>
+      </div>
+    </div>
+  `).join('');
+}
+renderContacts();
+
+// Agent log
+function addLog(action, detail) {
+  const log = document.getElementById('agentLog');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  const now = new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  entry.innerHTML = `<span class="time">${now}</span><span class="action">${action}</span> → ${detail}`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+// Modals
+function openAddContact() { document.getElementById('addContactModal').classList.add('show'); }
+function openSearch() { document.getElementById('searchModal').classList.add('show'); }
+function closeModal() { document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('show')); }
+
+// Form handling
+document.getElementById('contactForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  contacts.unshift({ name: fd.get('first_name')+' '+fd.get('last_name'), email: fd.get('email'), company: fd.get('company'), stage: fd.get('stage'), value: '$0' });
+  renderContacts();
+  closeModal();
+  e.target.reset();
+  addLog('create_contact', `Added ${fd.get('first_name')} ${fd.get('last_name')}`);
+});
+
+document.getElementById('searchForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = new FormData(e.target).get('q').toLowerCase();
+  const grid = document.getElementById('contactGrid');
+  const filtered = contacts.filter(c => c.name.toLowerCase().includes(q) || c.email.includes(q) || c.company.toLowerCase().includes(q));
+  grid.innerHTML = filtered.length ? filtered.map(c => `<div class="contact-row"><span class="contact-name">${c.name}</span><span class="contact-email">${c.email}</span><span class="contact-company">${c.company}</span><span class="stage-badge stage-${c.stage}">${c.stage}</span><div class="contact-actions"><button class="act-btn">Edit</button><button class="act-btn">Email</button></div></div>`).join('') : '<p style="color:var(--tm);padding:20px">No results found</p>';
+  closeModal();
+  addLog('search', `Searched: "${q}" → ${filtered.length} results`);
+});
+
+// Agent tools panel — auto-generate from page
+function refreshTools() {
+  if (typeof AgentDOM === 'undefined') return;
+  try {
+    const result = AgentDOM.synthesizeTools();
+    const panel = document.getElementById('agentTools');
+    const nonBase = result.tools.filter(t => t._internal.type !== 'base');
+    panel.innerHTML = '<div class="section-label">Auto-Generated (' + result.page_type + ')</div>' +
+      nonBase.map(t => {
+        const params = Object.keys(t.params);
+        const sig = params.length ? '(' + params.join(', ') + ')' : '()';
+        return `<div class="tool-card"><div class="tool-name">${t.name}${sig}</div><div class="tool-desc">${t.description.slice(0,80)}</div>${params.length ? '<div class="tool-params">'+params.map(p=>p+': '+t.params[p].type).join(', ')+'</div>':''}</div>`;
+      }).join('') +
+      '<div class="section-label" style="margin-top:8px">Base Tools</div>' +
+      result.tools.filter(t => t._internal.type === 'base').map(t => `<div class="tool-card"><div class="tool-name">${t.name}()</div><div class="tool-desc">${t.description}</div></div>`).join('');
+    addLog('synthesize', `${nonBase.length} page tools + ${result.tools.length - nonBase.length} base tools`);
+  } catch(e) { console.log('AgentDOM not ready:', e); }
+}
+
+// Init
+setTimeout(() => {
+  addLog('system', 'AgentDOM v3.0 connected');
+  addLog('scan', 'Scanning page for forms, actions, links...');
+  refreshTools();
+  addLog('ready', 'CRM agent tools ready — try adding a contact');
+}, 500);
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('pageTitle').textContent = item.textContent.trim();
+  });
+});
+</script>
+</body>
+</html>

@@ -164,7 +164,12 @@ def walk(el, depth: int, max_depth: int, parent_path: str, out: list):
     enabled = ax_attr(el, "AXEnabled")
     focused = ax_attr(el, "AXFocused")
 
-    if role in INTERACTIVE or (role == "AXStaticText" and title):
+    # Static text often carries its visible content in AXValue rather than AXTitle.
+    # For label items we fall back to value if title/desc are empty.
+    if role == "AXStaticText" and not label and isinstance(val, str) and val:
+        label = val
+
+    if role in INTERACTIVE or (role == "AXStaticText" and label):
         friendly = ROLE_TO_TYPE.get(role, role)
         out.append({
             "type": friendly,

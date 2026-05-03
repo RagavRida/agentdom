@@ -30,6 +30,7 @@ const AGENTDOM_SCRIPT = fs.readFileSync(path.join(__dirname, 'agentdom.js'), 'ut
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const { ToolSynthesizer } = require('./integrations/tool-synthesizer');
 const { ToolExecutor } = require('./integrations/tool-executor');
+const { loadManifest, mergeManifestTools } = require('./compiler/from-manifest');
 
 // ── Browser State ──
 let browser = null;
@@ -140,6 +141,65 @@ const server = new Server(
 const synthesizer = new ToolSynthesizer();
 let currentDynamicTools = []; // Synthesized from page schema
 let currentDynamicToolDefs = []; // Full defs with _internal
+let currentManifest = null;     // AGENTDOM.md loaded by hostname
+
+function manifestSubst(s, args) {
+  return typeof s === 'string'
+    ? s.replace(/\$\{(\w+)\}/g, (_, k) => (args[k] === undefined || args[k] === null ? '' : String(args[k])))
+    : s;
+}
+
+// Web step grammar:
+//   navigate: <url>             — page.goto, waits for networkidle2
+//   click:    <css-selector>    — AgentDOM.click(sel)
+//   type:     { selector, text} — AgentDOM.type(sel, text)
+//   read:     "title"|"url"|<css-selector> — extract page state
+//   wait:     <ms>              — fixed delay
+async function runWebSteps(action, callArgs) {
+  if (!Array.isArray(action.steps) || action.steps.length === 0) {
+    return { error: 'Manifest tool has no steps:' };
+  }
+  const p = await ensureBrowser();
+  const trace = [];
+  let lastRead = null;
+
+  for (let i = 0; i < action.steps.length; i++) {
+    const step = action.steps[i];
+    try {
+      if (step.navigate !== undefined) {
+        const url = validateUrl(manifestSubst(step.navigate, callArgs));
+        await p.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        trace.push({ step: i, navigate: url });
+      } else if (step.click !== undefined) {
+        const sel = manifestSubst(step.click, callArgs);
+        await evalSafe(async (s) => await AgentDOM.click(s), [sel]);
+        await p.waitForNetworkIdle({ timeout: 1500 }).catch(() => {});
+        trace.push({ step: i, click: sel });
+      } else if (step.type) {
+        const sel = manifestSubst(step.type.selector, callArgs);
+        const text = manifestSubst(step.type.text, callArgs);
+        await evalSafe(async (s, t) => await AgentDOM.type(s, t), [sel, text]);
+        trace.push({ step: i, type: { selector: sel, length: text.length } });
+      } else if (step.read !== undefined) {
+        const target = manifestSubst(step.read, callArgs);
+        if (target === 'title')      lastRead = await p.title();
+        else if (target === 'url')   lastRead = p.url();
+        else if (target === 'body')  lastRead = await p.evaluate(() => document.body.innerText.slice(0, 4000));
+        else lastRead = await p.evaluate((s) => document.querySelector(s)?.innerText?.slice(0, 4000) || null, target);
+        trace.push({ step: i, read: target, length: typeof lastRead === 'string' ? lastRead.length : null });
+      } else if (step.wait !== undefined) {
+        await new Promise(r => setTimeout(r, Number(step.wait) || 0));
+        trace.push({ step: i, waited: step.wait });
+      } else {
+        trace.push({ step: i, skipped: 'unrecognized', step_obj: step });
+      }
+    } catch (e) {
+      trace.push({ step: i, error: e.message });
+      return { error: `step ${i} failed: ${e.message}`, trace };
+    }
+  }
+  return { ok: true, dispatched: 'manifest:web-steps', trace, result: lastRead };
+}
 
 async function refreshDynamicTools() {
   try {
@@ -147,6 +207,24 @@ async function refreshDynamicTools() {
     const result = synthesizer.synthesize(schema);
     currentDynamicToolDefs = result.tools.filter(t => t._internal.type !== 'base');
     currentDynamicTools = synthesizer.toMCPFormat(currentDynamicToolDefs);
+
+    // Load AGENTDOM.md manifest by hostname; merge manifest-declared tools.
+    try {
+      const url = schema?.page?.meta?.url || '';
+      const host = url ? new URL(url).hostname.replace(/^www\./, '') : '';
+      currentManifest = host ? loadManifest(host) : null;
+      if (currentManifest) {
+        const merged = mergeManifestTools(currentDynamicTools, currentManifest, host);
+        currentDynamicTools = merged;
+        // Mirror manifest tools into the def map so dispatch can find them.
+        for (const t of merged) {
+          if (t._internal && t._internal.kind === 'manifest' && !currentDynamicToolDefs.find(d => d.name === t.name)) {
+            currentDynamicToolDefs.push(t);
+          }
+        }
+      }
+    } catch (_) { currentManifest = null; }
+
     // Notify clients that tools changed
     try { server.notification({ method: 'notifications/tools/list_changed' }); } catch (_) {}
   } catch (_) {
@@ -407,8 +485,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       default: {
-        // Check if it's a dynamic (auto-generated) tool
+        // Manifest-declared tools (kind === 'manifest') run through the web step interpreter.
         const dynTool = currentDynamicToolDefs.find(t => t.name === name);
+        if (dynTool && dynTool._internal && dynTool._internal.kind === 'manifest') {
+          const out = await runWebSteps(dynTool._internal.manifest_action || {}, args || {});
+          return { content: [{ type: 'text', text: JSON.stringify(out, null, 2) }], isError: !!out.error };
+        }
         if (dynTool) {
           const p = await ensureBrowser();
           const sessionProxy = {

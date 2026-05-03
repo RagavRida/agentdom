@@ -62,9 +62,17 @@ async function main() {
   }
   ok(`${APP} is running`);
 
-  // Force a clean new document so we have a text area in scope.
-  desktop.clickMenu(APP, 'File > New');
-  await wait(1000);
+  // Only create a new document if no text_area is already present — avoids the
+  // "Untitled 3 / 4 / 5" pileup when the demo runs repeatedly.
+  const preScan = desktop.scanApp(APP);
+  const hasDoc = Array.isArray(preScan) && preScan.some(e => e.type === 'text_area');
+  if (!hasDoc) {
+    info('No open document detected — creating one via File > New');
+    desktop.clickMenu(APP, 'File > New');
+    await wait(1000);
+  } else {
+    ok('Reusing existing TextEdit document');
+  }
 
   // ── Connect to MCP ──
   step('Spawning desktop MCP server and connecting MCP client over stdio');
@@ -151,22 +159,49 @@ async function main() {
     desktop.pressKeys(APP, 'escape'); // close the menu
     await wait(300);
 
-    // ── Step 8: cleanup — hide TextEdit (reversible) ──
-    step('Step 8: dispatch click_hide_textedit — non-destructive cleanup');
-    const hideResult = await client.callTool({ name: 'click_hide_textedit', arguments: {} });
-    if (hideResult.isError) {
-      warn(`click_hide_textedit errored: ${jsonText(hideResult).error || ''}`);
+    // ── Step 8: close the test document — exercises sheet recursion ──
+    step('Step 8: dispatch click_close → save sheet appears → dispatch click_delete to discard');
+    // We only auto-close the doc if WE created it (hasDoc was false above) so we
+    // don't trash a document the user was already working on.
+    if (hasDoc) {
+      info('Skipping document close — user had a document open before the demo started.');
     } else {
-      ok('TextEdit hidden');
-      await wait(500);
-      const front = desktop.getFrontApp();
-      info(`Frontmost app is now: ${front}`);
-      if (front !== APP) ok(`Verified: ${APP} is no longer frontmost`);
+      const closeResult = await client.callTool({ name: 'click_close', arguments: {} });
+      if (closeResult.isError) {
+        warn(`click_close errored: ${jsonText(closeResult).error || ''}`);
+      } else {
+        ok('click_close dispatched');
+      }
+      await wait(800);
+
+      // After closing an empty unsaved doc, no save sheet appears (TextEdit
+      // skips the prompt for empty docs). For docs with content the sheet
+      // would show — re-scan would find click_delete / click_dont_save and we
+      // could dispatch those. Try anyway in case content exists:
+      const closingScan = desktop.scanApp(APP);
+      const hasSavePrompt = Array.isArray(closingScan)
+        && closingScan.some(e => e.label === 'Delete' || e.label === "Don't Save");
+      if (hasSavePrompt) {
+        info('Save prompt detected (sheet) — dispatching click_delete');
+        // Re-scan via MCP so the dynamic tools include any sheet items.
+        await client.callTool({ name: 'scan_app', arguments: { app: APP } });
+        const r = await client.callTool({ name: 'click_delete', arguments: {} });
+        if (!r.isError) ok('Discarded unsaved changes');
+        else warn(`Discard failed: ${jsonText(r).error || ''}`);
+      } else {
+        ok('Document closed cleanly (no save prompt — was empty).');
+      }
     }
 
-    // Restore for the user
-    desktop.activate(APP);
-    info('TextEdit restored to foreground.');
+    // Hide TextEdit so the user gets their previous frontmost app back.
+    const front0 = desktop.getFrontApp();
+    info(`Frontmost before hide: ${front0}`);
+    const hideResult = await client.callTool({ name: 'click_hide_textedit', arguments: {} });
+    if (!hideResult.isError) {
+      await wait(400);
+      const front1 = desktop.getFrontApp();
+      ok(`Hidden — frontmost is now: ${front1}`);
+    }
 
     // ── Summary ──
     step('Summary');

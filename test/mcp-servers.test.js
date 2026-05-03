@@ -80,12 +80,12 @@ async function testCli() {
     });
 
     await test('cli: dispatches a flag form to execFileSync', async () => {
-      // CLI flag forms are named submit_<command> by the current codegen.
+      // CLI flag forms are named invoke_<command> by the current codegen.
       await client.callTool({ name: 'scan_cli', arguments: { command: 'node' } });
       const list = await client.listTools();
-      const formTool = list.tools.find(t => t.name === 'submit_node');
-      assert.ok(formTool, `expected submit_node form tool; got: ${list.tools.map(t => t.name).slice(0, 8).join(', ')}`);
-      const r = await client.callTool({ name: 'submit_node', arguments: { version: true } });
+      const formTool = list.tools.find(t => t.name === 'invoke_node');
+      assert.ok(formTool, `expected invoke_node form tool; got: ${list.tools.map(t => t.name).slice(0, 8).join(', ')}`);
+      const r = await client.callTool({ name: 'invoke_node', arguments: { version: true } });
       const data = jsonText(r);
       assert.ok(data.argv || data.exitCode !== undefined || data.error, `dispatcher returned: ${JSON.stringify(data).slice(0, 200)}`);
     });

@@ -34,7 +34,15 @@ function formToTool(form, ir) {
     if (field.required) required.push(name);
   }
   const intent = form.intent || form.submitAction?.intent;
-  const name = intent ? slugify(intent) : (form.id ? `submit_${slugify(form.id)}` : 'submit_form');
+  const submitSlug = form.submitAction?.label ? slugify(form.submitAction.label) : null;
+  // Naming priority: known intent → invoke_<submit-label> → submit_<form-id> → generic.
+  const name = intent
+    ? slugify(intent)
+    : submitSlug
+      ? `invoke_${submitSlug}`
+      : form.id
+        ? `submit_${slugify(form.id)}`
+        : 'submit_form';
   const labelHint = form.submitAction?.label || form.id || 'form';
   return {
     type: 'function',

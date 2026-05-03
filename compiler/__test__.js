@@ -24,9 +24,9 @@ test('desktop: empty scan → empty IR', () => {
   assert.deepStrictEqual(tools, []);
 });
 
-test('desktop: auth form synthesis + intent inference', () => {
+test('desktop: auth form synthesis + intent inference + slugged params', () => {
   const scan = [
-    { type: 'text_input', label: 'Email', enabled: true, path: 'w/0' },
+    { type: 'text_input', label: 'Email Address', enabled: true, path: 'w/0' },
     { type: 'text_input', label: 'Password', enabled: true, path: 'w/1' },
     { type: 'button', label: 'Sign In', enabled: true, path: 'w/2' },
   ];
@@ -34,10 +34,22 @@ test('desktop: auth form synthesis + intent inference', () => {
   assert.strictEqual(ir.forms.length, 1, 'one form');
   assert.strictEqual(ir.forms[0].intent, 'authenticate');
   assert.strictEqual(ir.forms[0].fields.length, 2);
-  assert.strictEqual(ir.forms[0].submitAction.label, 'Sign In');
+  // Names are slugged for agent-friendly identifiers; labels keep originals for AX dispatch.
+  assert.deepStrictEqual(ir.forms[0].fields.map(f => f.name).sort(), ['email_address', 'password']);
+  assert.deepStrictEqual(ir.forms[0].fields.map(f => f.label).sort(), ['Email Address', 'Password']);
   const auth = tools.find(t => t.function.name === 'authenticate');
   assert.ok(auth, 'authenticate tool emitted');
-  assert.deepStrictEqual(Object.keys(auth.function.parameters.properties).sort(), ['Email', 'Password']);
+  assert.deepStrictEqual(Object.keys(auth.function.parameters.properties).sort(), ['email_address', 'password']);
+});
+
+test('codegen: form without intent uses invoke_<submit-label>', () => {
+  const help = `
+Flags:
+  -v, --verbose         Be loud
+`;
+  const { tools } = compile(help, { from: 'cli', command: 'mycli' });
+  // CLI form has no intent, submit label = command name → invoke_mycli.
+  assert.ok(tools.find(t => t.function.name === 'invoke_mycli'), `tools: ${tools.map(t => t.function.name).join(', ')}`);
 });
 
 test('desktop: dead elements stripped (disabled, empty-label)', () => {

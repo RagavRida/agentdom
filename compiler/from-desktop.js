@@ -11,6 +11,11 @@
 
 const { makeIR, makeField, makeAction, makeForm } = require('./ir');
 
+function slugifyName(s) {
+  const slug = String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  return slug || 'field';
+}
+
 const FIELD_TYPES_FROM_DESKTOP = {
   text_input: 'string',
   text_area: 'string',
@@ -72,7 +77,9 @@ function fromDesktop(scan, { appName = '' } = {}) {
 
     if (FIELD_TYPES_FROM_DESKTOP[el.type]) {
       fields.push(makeField({
-        name: el.label,
+        // Slug the param name (agent-facing) while preserving the original AX
+        // label in `label` for dispatch via desktop.typeIntoField(label, value).
+        name: slugifyName(el.label),
         type: FIELD_TYPES_FROM_DESKTOP[el.type],
         required: false,
         label: el.label,

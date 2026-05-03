@@ -98,6 +98,24 @@ async function withRetry(fn, { retries = 1, delay = 500 } = {}) {
 }
 
 // ════════════════════════════════════════════════
+//  Direct AX bridge — bypasses System Events for SwiftUI / hidden apps.
+//  Calls desktop-agent/ax-bridge.py via execFileSync (shell-safe).
+// ════════════════════════════════════════════════
+
+const AX_BRIDGE = path.join(__dirname, 'ax-bridge.py');
+
+function axBridge(verb, ...args) {
+  const out = execFileSync('python3', [AX_BRIDGE, verb, ...args.map(String)], {
+    encoding: 'utf-8',
+    timeout: 15000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 4 * 1024 * 1024,
+  }).trim();
+  if (!out) return null;
+  return JSON.parse(out);
+}
+
+// ════════════════════════════════════════════════
 //  Label disambiguation — handles duplicate labels in the UI tree
 // ════════════════════════════════════════════════
 
@@ -272,82 +290,21 @@ print(json.dumps(out))
     } catch {}
   },
 
-  /** Scan an app's UI tree — returns agent-readable structured elements. */
+  /** Scan an app's UI tree — returns agent-readable structured elements.
+   *  Uses the AXUIElement C API directly (via desktop-agent/ax-bridge.py),
+   *  not System Events — required for SwiftUI apps on macOS 26 and to see
+   *  windows of non-frontmost AppKit apps. */
   scanApp(appName) {
     const name = validateAppName(appName);
     if (!this.isRunning(name)) return this._notRunningError(name);
-    const safeName = sanitizeAS(name);
-    const script = `
-      const se = Application("System Events");
-      const proc = se.processes.byName("${safeName}");
-      const elements = [];
-      const roleNames = {
-        AXButton: 'button', AXTextField: 'text_input', AXTextArea: 'text_area',
-        AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXPopUpButton: 'dropdown',
-        AXComboBox: 'combo_box', AXSlider: 'slider', AXMenuItem: 'menu_item',
-        AXLink: 'link', AXIncrementor: 'stepper', AXTab: 'tab',
-        AXStaticText: 'label', AXMenuBarItem: 'menu', AXSearchField: 'search_field',
-        AXImage: 'image', AXGroup: 'group', AXScrollArea: 'scroll_area',
-        AXTable: 'table', AXOutline: 'tree_view'
-      };
-      function scanElement(el, depth, parentPath) {
-        if (depth > 4) return;
-        try {
-          const role = el.role();
-          const title = el.title() || '';
-          const desc = el.description() || '';
-          let val = null; try { val = el.value(); } catch(e) {}
-          let enabled = true; try { enabled = el.enabled(); } catch(e) {}
-          let focused = false; try { focused = el.focused(); } catch(e) {}
-          let pos = null, size = null;
-          try { pos = el.position(); size = el.size(); } catch(e) {}
-          let acts = [];
-          try { const actions = el.actions(); for (let a = 0; a < actions.length; a++) { acts.push(actions[a].name()); } } catch(e) {}
-          const interactive = ['AXButton','AXTextField','AXTextArea','AXCheckBox','AXRadioButton','AXPopUpButton','AXComboBox','AXSlider','AXMenuItem','AXLink','AXIncrementor','AXTab','AXSearchField'].includes(role);
-          if (interactive || (role === 'AXStaticText' && title)) {
-            const friendlyRole = roleNames[role] || role;
-            const label = title || desc || '';
-            let agentDesc = '';
-            if (role === 'AXButton') agentDesc = 'Click to ' + (label.toLowerCase() || 'perform action');
-            else if (role === 'AXTextField' || role === 'AXTextArea' || role === 'AXSearchField') agentDesc = 'Type text into: ' + label;
-            else if (role === 'AXCheckBox') agentDesc = (val ? 'Uncheck' : 'Check') + ' ' + label;
-            else if (role === 'AXMenuItem') agentDesc = 'Execute menu action: ' + label;
-            else if (role === 'AXLink') agentDesc = 'Navigate to: ' + label;
-            else if (role === 'AXPopUpButton') agentDesc = 'Select from dropdown: ' + label;
-            else if (role === 'AXSlider') agentDesc = 'Adjust slider: ' + label;
-            else if (role === 'AXTab') agentDesc = 'Switch to tab: ' + label;
-            else agentDesc = label;
-            elements.push({ type: friendlyRole, label, description: agentDesc, value: val, enabled, focused, actions: acts, path: parentPath, position: pos, size });
-          }
-          try { const children = el.uiElements(); for (let i = 0; i < Math.min(children.length, 50); i++) { scanElement(children[i], depth + 1, parentPath + '/' + (title || role)); } } catch(e) {}
-        } catch(e) {}
-      }
-      const windows = proc.windows();
-      for (let w = 0; w < windows.length; w++) {
-        scanElement(windows[w], 0, 'window[' + w + ']');
-        // Sheets / modals are siblings of uiElements — scan them explicitly.
-        try {
-          const sheets = windows[w].sheets();
-          for (let s = 0; s < sheets.length; s++) {
-            scanElement(sheets[s], 0, 'window[' + w + ']/sheet[' + s + ']');
-          }
-        } catch(e) {}
-      }
-      try {
-        const menuBar = proc.menuBars[0]; const menus = menuBar.menuBarItems();
-        for (let m = 0; m < menus.length; m++) {
-          const menuName = menus[m].title();
-          elements.push({ type: 'menu', label: menuName, description: 'Open ' + menuName + ' menu', value: null, enabled: true, focused: false, actions: ['AXPress'], path: 'menubar', position: null, size: null });
-          try { const items = menus[m].menus[0].menuItems(); for (let i = 0; i < items.length; i++) { const itemName = items[i].title(); if (itemName) { elements.push({ type: 'menu_item', label: itemName, description: 'Execute: ' + menuName + ' > ' + itemName, value: null, enabled: true, focused: false, actions: ['AXPress'], path: 'menu/' + menuName, position: null, size: null }); } } } catch(e) {}
-        }
-      } catch(e) {}
-      JSON.stringify(elements);
-    `;
     try {
-      const elements = JSON.parse(jxa(script, { timeout: 15000 }));
+      const elements = axBridge('scan', name);
+      if (elements && !Array.isArray(elements) && elements.error) {
+        const perm = this.checkPermissions();
+        return { error: elements.error, hint: perm.ok ? (elements.hint || 'AX tree unavailable for this app.') : perm.hint };
+      }
       const framework = this.detectFramework(name);
       const result = disambiguateLabels(elements);
-      // Annotate with framework so the agent knows what to expect.
       Object.defineProperty(result, 'framework', { value: framework, enumerable: false });
       if (framework === 'electron') {
         result.unshift({
@@ -360,6 +317,10 @@ print(json.dumps(out))
           actions: [],
           path: '__meta__',
         });
+      }
+      // Empty result on a running app usually means it's hidden — surface a hint.
+      if (result.length === 0) {
+        return { error: 'AX tree was empty', hint: `App "${name}" has no visible windows or its UI is hidden — call activate("${name}") first or unhide the app.` };
       }
       return result;
     } catch (e) {
@@ -376,114 +337,21 @@ print(json.dumps(out))
     const lbl = validateLabel(label);
     const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
     if (!this.isRunning(name)) return this._notRunningError(name);
-    const safeName = sanitizeAS(name);
-    const safeLbl = sanitizeAS(bare);
-    const script = `
-      const se = Application("System Events");
-      const proc = se.processes.byName("${safeName}");
-      const target = ${targetIdx};
-      const state = { matched: 0 };
-      function findAndPress(el, depth) {
-        if (depth > 5) return false;
-        try {
-          const title = el.title() || el.description() || '';
-          if (title === "${safeLbl}") {
-            state.matched++;
-            if (state.matched === target) {
-              try {
-                const actions = el.actions();
-                for (let a = 0; a < actions.length; a++) {
-                  const n = actions[a].name();
-                  if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
-                    actions[a].perform();
-                    return true;
-                  }
-                }
-              } catch(e) {}
-              try { el.click(); return true; } catch(e) {}
-            }
-          }
-          try {
-            const children = el.uiElements();
-            for (let i = 0; i < children.length; i++) {
-              if (findAndPress(children[i], depth + 1)) return true;
-            }
-          } catch(e) {}
-        } catch(e) {}
-        return false;
-      }
-      // Try one specific menubar item by title and press its AXPress.
-      function pressIfMatch(el) {
-        try {
-          const t = el.title() || el.description() || '';
-          if (t !== "${safeLbl}") return false;
-          state.matched++;
-          if (state.matched !== target) return false;
-          try {
-            const actions = el.actions();
-            for (let a = 0; a < actions.length; a++) {
-              const n = actions[a].name();
-              if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
-                actions[a].perform();
-                return true;
-              }
-            }
-          } catch(e) {}
-          try { el.click(); return true; } catch(e) {}
-        } catch(e) {}
-        return false;
-      }
-      // Structured menubar walk: menuBars → menuBarItems → menus[0] → menuItems.
-      function searchMenuBars() {
-        try {
-          const bars = proc.menuBars();
-          for (let b = 0; b < bars.length; b++) {
-            const items = bars[b].menuBarItems();
-            for (let i = 0; i < items.length; i++) {
-              const item = items[i];
-              if (pressIfMatch(item)) return true;
-              try {
-                const menu = item.menus()[0];
-                const mItems = menu.menuItems();
-                for (let j = 0; j < mItems.length; j++) {
-                  if (pressIfMatch(mItems[j])) return true;
-                  // One level of submenu nesting (e.g. View > Show > Sidebar).
-                  try {
-                    const sub = mItems[j].menus()[0];
-                    const subItems = sub.menuItems();
-                    for (let k = 0; k < subItems.length; k++) {
-                      if (pressIfMatch(subItems[k])) return true;
-                    }
-                  } catch(e) {}
-                }
-              } catch(e) {}
-            }
-          }
-        } catch(e) {}
-        return false;
-      }
-      let found = false;
-      const wins = proc.windows();
-      for (let w = 0; w < wins.length; w++) {
-        if (findAndPress(wins[w], 0)) { found = true; break; }
-      }
-      if (!found) found = searchMenuBars();
-      JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}", index: target, totalMatched: state.matched });
-    `;
-    const result = JSON.parse(jxa(script, { timeout: 10000 }));
+    const result = axBridge('click', name, bare, String(targetIdx));
+    // Bridge returns { clicked, method, matched, index, error?, hint? }.
     if (!result.clicked) {
-      if (result.totalMatched === 0) {
-        result.error = `No element with label "${bare}" found in "${name}".`;
-        result.hint = 'Run scanApp() first to inspect available labels. Disambiguate duplicates as "Label (n)".';
-      } else if (result.totalMatched < targetIdx) {
-        result.error = `Found ${result.totalMatched} match(es) for "${bare}", but index ${targetIdx} requested.`;
-        result.hint = `Use a smaller index (1..${result.totalMatched}) or omit the suffix to target the first match.`;
+      if (result.matched === 0) {
+        result.error = result.error || `No element with label "${bare}" found in "${name}".`;
+        result.hint = result.hint || 'Run scanApp() first to inspect available labels. Disambiguate duplicates as "Label (n)".';
+      } else if (result.matched < targetIdx) {
+        result.error = `Found ${result.matched} match(es) for "${bare}", but index ${targetIdx} requested.`;
+        result.hint = `Use a smaller index (1..${result.matched}) or omit the suffix to target the first match.`;
       } else {
-        result.error = result.error || `Element "${bare}" matched but no AXPress/AXConfirm/AXPick action succeeded.`;
-        result.hint = result.hint || 'The element exists but is not invokable through accessibility. Try clickAt(x, y) with its position from scanApp().';
+        result.error = result.error || `Element "${bare}" matched but AXPress/AXConfirm/AXPick failed.`;
+        result.hint = result.hint || 'The element exists but is not invokable. Try activating the app first or clickAt(x,y).';
       }
     }
-    return result;
+    return { ...result, app: name, element: bare };
   },
 
   /** Click at global screen coordinates. Prefers cliclick (CGEvent — multi-display safe). */
@@ -540,7 +408,7 @@ print(json.dumps(out))
     }
   },
 
-  /** Type into a specific field by label — uses AXSetValue.
+  /** Type into a specific field by label — uses AXSetValue via the AX bridge.
    *  Accepts disambiguators: "Search (2)" targets the second matching "Search". */
   typeIntoField(appName, fieldLabel, text) {
     const name = validateAppName(appName);
@@ -548,56 +416,17 @@ print(json.dumps(out))
     const txt = validateLabel(typeof text === 'string' ? text : String(text), 'text');
     const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
     if (!this.isRunning(name)) return this._notRunningError(name);
-    const safeName = sanitizeAS(name);
-    const safeLbl = sanitizeAS(bare);
-    const safeTxt = sanitizeAS(txt);
-    const script = `
-      const se = Application("System Events");
-      const proc = se.processes.byName("${safeName}");
-      const target = ${targetIdx};
-      const state = { matched: 0 };
-      function findField(el, depth) {
-        if (depth > 5) return null;
-        try {
-          const role = el.role();
-          const title = el.title() || el.description() || '';
-          if (['AXTextField','AXTextArea','AXComboBox','AXSearchField'].includes(role) &&
-              (title.includes("${safeLbl}") || title === "${safeLbl}")) {
-            state.matched++;
-            if (state.matched === target) return el;
-          }
-          const children = el.uiElements();
-          for (let i = 0; i < children.length; i++) {
-            const found = findField(children[i], depth + 1);
-            if (found) return found;
-          }
-        } catch(e) {}
-        return null;
-      }
-      const wins = proc.windows();
-      let done = false;
-      for (let w = 0; w < wins.length; w++) {
-        const field = findField(wins[w], 0);
-        if (field) {
-          try { field.focused = true; } catch(e) {}
-          field.value = "${safeTxt}";
-          done = true;
-          break;
-        }
-      }
-      JSON.stringify({ typed: done, method: 'AXSetValue', field: "${safeLbl}", index: target, totalMatched: state.matched });
-    `;
-    const result = JSON.parse(jxa(script, { timeout: 10000 }));
+    const result = axBridge('type', name, bare, txt, String(targetIdx));
     if (!result.typed) {
-      if (result.totalMatched === 0) {
-        result.error = `No text field with label "${bare}" found in "${name}".`;
-        result.hint = 'Run scanApp() first to find available fields. Field labels often come from placeholders or aria-labels.';
-      } else if (result.totalMatched < targetIdx) {
-        result.error = `Found ${result.totalMatched} field(s) matching "${bare}", but index ${targetIdx} requested.`;
-        result.hint = `Use a smaller index (1..${result.totalMatched}).`;
+      if (result.matched === 0) {
+        result.error = result.error || `No text field with label "${bare}" found in "${name}".`;
+        result.hint = result.hint || 'Run scanApp() first to find available fields.';
+      } else if (result.matched < targetIdx) {
+        result.error = `Found ${result.matched} field(s) matching "${bare}", but index ${targetIdx} requested.`;
+        result.hint = `Use a smaller index (1..${result.matched}).`;
       }
     }
-    return result;
+    return { ...result, app: name };
   },
 
   /** Press keyboard shortcut — e.g. "cmd+s", "shift+tab". */

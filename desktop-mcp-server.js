@@ -11,24 +11,67 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { ListToolsRequestSchema, CallToolRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { platform } = require('./agent-platform');
+const desktop = require('./desktop-agent');
+const { compile } = require('./compiler');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
   { capabilities: { tools: {}, resources: {} } }
 );
 
-// ── Tools: Auto-generated from platform capabilities ──
+// ── Per-session compiled tools (refreshed by scan_app) ──
+let currentApp = null;
+let dynamicTools = [];        // public-shape tools for tools/list
+const dynamicMap = new Map(); // name → full tool object (incl. _internal) for dispatch
+
+function stripInternal(tools) {
+  return tools.map(({ _internal, ...rest }) => rest);
+}
+
+async function refreshScan(appName) {
+  const perm = desktop.checkPermissions();
+  if (!perm.ok) {
+    return { error: perm.error || 'Permission required', hint: perm.hint };
+  }
+  if (!desktop.isRunning(appName)) {
+    return { error: 'App not running', app: appName, hint: `Open ${appName} or call open_app first.` };
+  }
+  const scan = desktop.scanApp(appName);
+  if (scan && scan.error) return scan;
+
+  const { ir, tools } = compile(scan, { from: 'desktop', to: 'mcp', appName });
+  currentApp = appName;
+  dynamicTools = stripInternal(tools);
+  dynamicMap.clear();
+  for (const t of tools) dynamicMap.set(t.name, t);
+
+  // Notify the client to re-fetch tools/list.
+  try { server.notification({ method: 'notifications/tools/list_changed' }); } catch (_) {}
+
+  return {
+    app: appName,
+    framework: ir.meta.framework,
+    counts: { forms: ir.forms.length, actions: ir.actions.length, navigation: ir.navigation.length },
+    tools: dynamicTools,
+  };
+}
+
+// ── Tools: meta + auto-compiled per scan ──
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
-    // Platform meta-tools
+    {
+      name: 'scan_app',
+      description: 'Scan a running desktop app and AUTO-GENERATE typed tools (authenticate, click_*, navigate, …). Call this whenever the active app changes or the UI navigates. After it returns, call tools/list again to get the new tool list — or just call the tool by name; the server emits notifications/tools/list_changed.',
+      inputSchema: { type: 'object', properties: { app: { type: 'string', description: 'App name (e.g. "Slack", "Finder")' } }, required: ['app'] },
+    },
     {
       name: 'discover',
-      description: 'Discover all available AgentDOM capabilities. Call this first to see what you can do. Optionally filter by category: app_control, observe, interact, navigate, system, browser, dev.',
+      description: 'Discover all available AgentDOM capabilities. Optionally filter by category: app_control, observe, interact, navigate, system, browser, dev.',
       inputSchema: { type: 'object', properties: { category: { type: 'string', description: 'Filter by category' } } },
     },
     {
       name: 'observe',
-      description: 'Observe the current state of the desktop: running apps, active app, clipboard, system info, time. Use this to understand what is happening before taking action.',
+      description: 'Observe the current state of the desktop: running apps, active app, clipboard, system info, time.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
@@ -46,7 +89,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['actions'],
       },
     },
-    // All platform capabilities as tools
+    // Auto-compiled tools from the most recent scan_app.
+    ...dynamicTools,
+    // Low-level platform capabilities (escape hatches — agent rarely needs these directly).
     ...platform.toMCPTools(),
   ],
 }));
@@ -65,6 +110,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     try {
       // Meta-tools
+      if (name === 'scan_app') {
+        if (!args?.app) {
+          return { content: [{ type: 'text', text: 'scan_app requires { app: <name> }' }], isError: true };
+        }
+        const result = await refreshScan(args.app);
+        if (result.error) {
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+        }
+        return ok(result);
+      }
       if (name === 'discover') {
         return ok(platform.discover(args?.category));
       }
@@ -82,7 +137,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(result);
       }
 
-      // All other tools → platform.execute
+      // Compiled tools from the most recent scan_app
+      if (dynamicMap.has(name)) {
+        const tool = dynamicMap.get(name);
+        const result = await dispatchCompiledTool(tool, args || {});
+        if (result && result.error) {
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+        }
+        return ok(result);
+      }
+
+      // Fallback: low-level platform capabilities
       const result = platform.execute(name, args || {});
       if (result.success === false) {
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
@@ -93,6 +158,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: 'text', text: `Error in '${name}': ${e.message}` }], isError: true };
     }
   };
+
+  // dispatchCompiledTool: route an auto-generated tool back to desktop primitives.
+  async function dispatchCompiledTool(tool, callArgs) {
+    if (!currentApp) {
+      return { error: 'No active app', hint: 'Call scan_app({ app }) first to register tools.' };
+    }
+    const internal = tool._internal || {};
+
+    if (internal.kind === 'action') {
+      const r = desktop.clickElement(currentApp, internal.label);
+      if (r && r.error) return r;
+      return { dispatched: 'clickElement', element: internal.label, result: r };
+    }
+
+    if (internal.kind === 'form') {
+      const fieldByName = new Map((internal.fields || []).map(f => [f.name, f]));
+      const typed = [];
+      for (const [argName, value] of Object.entries(callArgs)) {
+        const field = fieldByName.get(argName);
+        if (!field) continue;
+        const r = desktop.typeIntoField(currentApp, field.label || field.name, String(value ?? ''));
+        typed.push({ field: field.name, ok: !!r?.typed, error: r?.error });
+        if (r && r.error) return { error: `typeIntoField "${field.name}" failed`, detail: r };
+      }
+      let submitResult = null;
+      if (internal.submitAction && internal.submitAction.label) {
+        submitResult = desktop.clickElement(currentApp, internal.submitAction.label);
+        if (submitResult && submitResult.error) return submitResult;
+      }
+      return { dispatched: 'form', typed, submit: submitResult };
+    }
+
+    if (internal.kind === 'navigation') {
+      if (!callArgs.target) return { error: 'navigate requires { target }' };
+      const link = (internal.links || []).find(l => l.label === callArgs.target);
+      if (!link) return { error: `Unknown navigation target "${callArgs.target}"`, hint: 'Re-scan: the menu may have changed.' };
+      const r = desktop.clickElement(currentApp, link.label);
+      if (r && r.error) return r;
+      return { dispatched: 'navigation', target: link.label, result: r };
+    }
+
+    return { error: `Unknown _internal.kind: ${internal.kind}` };
+  }
 
   // Per-tool timeout
   try {

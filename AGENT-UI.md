@@ -258,8 +258,8 @@ every navigation is the default, not the optimization.
 
 | Server               | Auto-emits typed tools? | Path                                                |
 | -------------------- | ----------------------- | --------------------------------------------------- |
-| Web `mcp-server.js`  | ✅ via `scan_with_tools` + `tools/list_changed` | Uses the legacy `ToolSynthesizer` — will switch to the new compiler in the next pass for parity with desktop/CLI/API. |
-| Desktop `desktop-mcp-server.js` | 🟡 partial — exposes platform capabilities directly. Wiring it through `compiler/index.js` so it emits app-typed tools (`click_send`, `type_message`, …) is the smallest remaining change. |
+| Web `mcp-server.js`  | ✅ via `scan_with_tools` + `tools/list_changed` | Uses the legacy `ToolSynthesizer`. Migrating to the new compiler is a follow-up. |
+| Desktop `desktop-mcp-server.js` | ✅ via `scan_app` + `tools/list_changed`, routed through the new `compiler/`. | Form tools dispatch to `typeIntoField` per arg + `clickElement` on the submit; action tools dispatch to `clickElement`; navigation dispatches to `clickElement` on the link label. Low-level `platform.toMCPTools()` capabilities still exposed as escape hatches. |
 | CLI / API            | ❌ not yet wrapped as MCP servers — `compile()` already produces the tool list; needs an `mcp-cli-server.js` / `mcp-api-server.js` shim with stdio plumbing. ~1h each. |
 
 The compiler shipped this branch (`compiler/index.js`) is the canonical path

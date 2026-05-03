@@ -14,11 +14,14 @@
     "agent-platform.js",
     "integrations/",
     "desktop-agent/",
+    "compiler/",
+    "commands/",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
     "cli": "node cli.js",
+    "init": "node cli.js init",
     "desktop": "node cli.js --desktop",
     "server": "node integrations/http-server.js",
     "mcp": "node mcp-server.js",
@@ -27,6 +30,7 @@
     "openai": "node integrations/openai.js",
     "gemini": "node integrations/gemini.js",
     "test": "node --test test/*.test.js",
+    "test:compiler": "node compiler/__test__.js",
     "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
     "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
     "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",

@@ -61,18 +61,7 @@ async function main() {
     await wait(1500);
   }
   ok(`${APP} is running`);
-
-  // Only create a new document if no text_area is already present — avoids the
-  // "Untitled 3 / 4 / 5" pileup when the demo runs repeatedly.
-  const preScan = desktop.scanApp(APP);
-  const hasDoc = Array.isArray(preScan) && preScan.some(e => e.type === 'text_area');
-  if (!hasDoc) {
-    info('No open document detected — creating one via File > New');
-    desktop.clickMenu(APP, 'File > New');
-    await wait(1000);
-  } else {
-    ok('Reusing existing TextEdit document');
-  }
+  info('Preflight done. From here, EVERY action is dispatched through the MCP server as a typed tool call — no desktop.* primitives in the agent path.');
 
   // ── Connect to MCP ──
   step('Spawning desktop MCP server and connecting MCP client over stdio');
@@ -91,14 +80,26 @@ async function main() {
 
     // ── Step 2: scan_app generates typed tools ──
     step(`Step 2: scan_app({ app: "${APP}" }) → compile() → tools/list_changed`);
-    const scanResult = await client.callTool({ name: 'scan_app', arguments: { app: APP } });
-    if (scanResult.isError) {
-      fail(`scan_app failed: ${jsonText(scanResult)}`); process.exit(1);
-    }
-    const scanData = jsonText(scanResult);
+    let scanData = jsonText(await client.callTool({ name: 'scan_app', arguments: { app: APP } }));
     info(`Counts: ${JSON.stringify(scanData.counts)}`);
     info(`Framework: ${scanData.framework}`);
     ok(`Auto-generated ${scanData.tools.length} typed tools`);
+
+    // If no text_area form exists, no document is open — dispatch click_new
+    // through the MCP server (NOT desktop.clickMenu) and re-scan.
+    const hadDoc = scanData.counts.forms > 0;
+    if (!hadDoc) {
+      step('Step 2b: no document detected → dispatch click_new (typed tool, MCP-routed)');
+      const r = await client.callTool({ name: 'click_new', arguments: {} });
+      if (r.isError) { fail(`click_new failed: ${jsonText(r).error || ''}`); process.exit(1); }
+      ok(`Dispatched click_new — ${jsonText(r).dispatched}`);
+      await wait(800);
+      scanData = jsonText(await client.callTool({ name: 'scan_app', arguments: { app: APP } }));
+      info(`Re-scan: ${JSON.stringify(scanData.counts)}`);
+      ok(`Form now in scope: ${scanData.counts.forms} form(s)`);
+    } else {
+      ok('Reusing existing TextEdit document');
+    }
 
     // ── Step 3: inspect what the agent now sees ──
     step('Step 3: tools/list after scan — what does the agent get?');
@@ -117,9 +118,8 @@ async function main() {
     }
 
     // ── Step 4: dispatch a typed tool — open Find panel via click_find ──
-    step('Step 4: dispatch click_find — opens TextEdit\'s Find panel');
-    const beforeFind = desktop.scanApp(APP);
-    const beforeCount = Array.isArray(beforeFind) ? beforeFind.length : 0;
+    step('Step 4: dispatch click_find — opens TextEdit\'s Find panel (MCP-routed)');
+    const beforeCount = scanData.tools.length;
     const findResult = await client.callTool({ name: 'click_find', arguments: {} });
     if (findResult.isError) {
       warn(`click_find errored: ${jsonText(findResult).error || jsonText(findResult)}`);
@@ -129,20 +129,19 @@ async function main() {
     }
     await wait(800);
 
-    // ── Step 5: re-scan — verify the UI changed ──
-    step('Step 5: re-scan — state should have changed (Find panel adds elements)');
-    const afterFind = desktop.scanApp(APP);
-    const afterCount = Array.isArray(afterFind) ? afterFind.length : 0;
-    info(`Element count: ${beforeCount} → ${afterCount}  (delta ${afterCount - beforeCount})`);
-    if (afterCount > beforeCount) ok('UI tree grew — Find panel detected');
-    else warn('No detectable element growth (panel may not have opened, or its elements were beyond depth 4)');
+    // ── Step 5: re-scan via MCP — verify the UI changed ──
+    step('Step 5: re-scan via MCP — tool count should grow (Find panel adds tools)');
+    scanData = jsonText(await client.callTool({ name: 'scan_app', arguments: { app: APP } }));
+    const afterCount = scanData.tools.length;
+    info(`Tool count: ${beforeCount} → ${afterCount}  (delta ${afterCount - beforeCount})`);
+    if (afterCount > beforeCount) ok('Tools grew — Find panel detected by re-scan');
+    else warn('No detectable tool growth (panel may not have opened, or its elements were beyond depth 4)');
 
     // ── Step 6: dispatch click_done — close the Find panel ──
     step('Step 6: dispatch click_done — closes the Find panel');
     const doneResult = await client.callTool({ name: 'click_done', arguments: {} });
     if (doneResult.isError) {
-      warn(`click_done not available; trying Escape via primitive`);
-      desktop.pressKeys(APP, 'escape');
+      warn(`click_done not available; the Find panel may already be closed`);
     } else {
       ok('Find panel dismissed via typed tool');
     }
@@ -151,56 +150,47 @@ async function main() {
     // ── Step 7: dispatch navigate({ target: 'Edit' }) ──
     step('Step 7: dispatch navigate({ target: "Edit" }) — opens the Edit menu');
     const navResult = await client.callTool({ name: 'navigate', arguments: { target: 'Edit' } });
-    if (navResult.isError) {
-      warn(`navigate errored: ${jsonText(navResult).error || ''}`);
-    } else {
-      ok(`navigate dispatched: ${jsonText(navResult).dispatched}`);
-    }
-    desktop.pressKeys(APP, 'escape'); // close the menu
+    if (navResult.isError) warn(`navigate errored: ${jsonText(navResult).error || ''}`);
+    else ok(`navigate dispatched: ${jsonText(navResult).dispatched}`);
+    // Close the menu by navigating again to the same target — toggle behaviour.
+    await client.callTool({ name: 'navigate', arguments: { target: 'Edit' } });
     await wait(300);
 
     // ── Step 8: close the test document — exercises sheet recursion ──
-    step('Step 8: dispatch click_close → save sheet appears → dispatch click_delete to discard');
-    // We only auto-close the doc if WE created it (hasDoc was false above) so we
-    // don't trash a document the user was already working on.
-    if (hasDoc) {
+    step('Step 8: dispatch click_close → re-scan via MCP → if sheet appears, dispatch click_delete');
+    if (hadDoc) {
       info('Skipping document close — user had a document open before the demo started.');
     } else {
       const closeResult = await client.callTool({ name: 'click_close', arguments: {} });
-      if (closeResult.isError) {
-        warn(`click_close errored: ${jsonText(closeResult).error || ''}`);
-      } else {
-        ok('click_close dispatched');
-      }
+      if (closeResult.isError) warn(`click_close errored: ${jsonText(closeResult).error || ''}`);
+      else ok('click_close dispatched (MCP-routed)');
       await wait(800);
 
-      // After closing an empty unsaved doc, no save sheet appears (TextEdit
-      // skips the prompt for empty docs). For docs with content the sheet
-      // would show — re-scan would find click_delete / click_dont_save and we
-      // could dispatch those. Try anyway in case content exists:
-      const closingScan = desktop.scanApp(APP);
-      const hasSavePrompt = Array.isArray(closingScan)
-        && closingScan.some(e => e.label === 'Delete' || e.label === "Don't Save");
-      if (hasSavePrompt) {
-        info('Save prompt detected (sheet) — dispatching click_delete');
-        // Re-scan via MCP so the dynamic tools include any sheet items.
-        await client.callTool({ name: 'scan_app', arguments: { app: APP } });
-        const r = await client.callTool({ name: 'click_delete', arguments: {} });
-        if (!r.isError) ok('Discarded unsaved changes');
+      // Re-scan via MCP. If the close triggered a save sheet, the sheet
+      // recursion in scan_app picks up its buttons and they appear as new
+      // typed tools (click_delete, click_dont_save, click_save).
+      const reScan = jsonText(await client.callTool({ name: 'scan_app', arguments: { app: APP } }));
+      const hasDiscard = reScan.tools.find(t => t.name === 'click_delete' || t.name === 'click_dont_save');
+      if (hasDiscard) {
+        info(`Save sheet detected — dispatching ${hasDiscard.name}`);
+        const r = await client.callTool({ name: hasDiscard.name, arguments: {} });
+        if (!r.isError) ok('Discarded unsaved changes via typed tool');
         else warn(`Discard failed: ${jsonText(r).error || ''}`);
       } else {
         ok('Document closed cleanly (no save prompt — was empty).');
       }
     }
 
-    // Hide TextEdit so the user gets their previous frontmost app back.
-    const front0 = desktop.getFrontApp();
-    info(`Frontmost before hide: ${front0}`);
+    // Hide TextEdit via the typed click_hide_textedit tool — observe state via
+    // the meta `observe` tool on the MCP server (not desktop.getFrontApp).
+    step('Step 9: dispatch click_hide_textedit + observe — MCP-only state check');
+    const beforeObs = jsonText(await client.callTool({ name: 'observe', arguments: {} }));
+    info(`Frontmost before hide: ${beforeObs.activeApp || beforeObs.frontmost || 'unknown'}`);
     const hideResult = await client.callTool({ name: 'click_hide_textedit', arguments: {} });
     if (!hideResult.isError) {
       await wait(400);
-      const front1 = desktop.getFrontApp();
-      ok(`Hidden — frontmost is now: ${front1}`);
+      const afterObs = jsonText(await client.callTool({ name: 'observe', arguments: {} }));
+      ok(`Hidden — frontmost is now: ${afterObs.activeApp || afterObs.frontmost || 'unknown'}`);
     }
 
     // ── Summary ──

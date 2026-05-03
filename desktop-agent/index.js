@@ -420,8 +420,17 @@ print(json.dumps(out))
       JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}", index: target, totalMatched: state.matched });
     `;
     const result = JSON.parse(jxa(script, { timeout: 10000 }));
-    if (!result.clicked && result.totalMatched > 0 && result.totalMatched < targetIdx) {
-      result.error = `Found ${result.totalMatched} match(es) for "${bare}", but index ${targetIdx} requested.`;
+    if (!result.clicked) {
+      if (result.totalMatched === 0) {
+        result.error = `No element with label "${bare}" found in "${name}".`;
+        result.hint = 'Run scanApp() first to inspect available labels. Disambiguate duplicates as "Label (n)".';
+      } else if (result.totalMatched < targetIdx) {
+        result.error = `Found ${result.totalMatched} match(es) for "${bare}", but index ${targetIdx} requested.`;
+        result.hint = `Use a smaller index (1..${result.totalMatched}) or omit the suffix to target the first match.`;
+      } else {
+        result.error = result.error || `Element "${bare}" matched but no AXPress/AXConfirm/AXPick action succeeded.`;
+        result.hint = result.hint || 'The element exists but is not invokable through accessibility. Try clickAt(x, y) with its position from scanApp().';
+      }
     }
     return result;
   },
@@ -527,7 +536,17 @@ print(json.dumps(out))
       }
       JSON.stringify({ typed: done, method: 'AXSetValue', field: "${safeLbl}", index: target, totalMatched: state.matched });
     `;
-    return JSON.parse(jxa(script, { timeout: 10000 }));
+    const result = JSON.parse(jxa(script, { timeout: 10000 }));
+    if (!result.typed) {
+      if (result.totalMatched === 0) {
+        result.error = `No text field with label "${bare}" found in "${name}".`;
+        result.hint = 'Run scanApp() first to find available fields. Field labels often come from placeholders or aria-labels.';
+      } else if (result.totalMatched < targetIdx) {
+        result.error = `Found ${result.totalMatched} field(s) matching "${bare}", but index ${targetIdx} requested.`;
+        result.hint = `Use a smaller index (1..${result.totalMatched}).`;
+      }
+    }
+    return result;
   },
 
   /** Press keyboard shortcut — e.g. "cmd+s", "shift+tab". */
@@ -576,9 +595,10 @@ print(json.dumps(out))
   clickMenu(appName, menuPath) {
     const name = validateAppName(appName);
     if (typeof menuPath !== 'string') throw new Error('menuPath must be a string');
+    if (!this.isRunning(name)) return this._notRunningError(name);
     this.activate(name);
     const parts = menuPath.split('>').map(s => s.trim()).filter(Boolean);
-    if (parts.length < 2) return { error: 'Format: "Menu > Item" or "Menu > Sub > Item"' };
+    if (parts.length < 2) return { clicked: false, error: 'menuPath needs at least two segments', hint: 'Format: "Menu > Item" or "Menu > Sub > Item"' };
     for (const p of parts) validateLabel(p, 'menu segment');
 
     const safeName = sanitizeAS(name);
@@ -594,7 +614,13 @@ print(json.dumps(out))
       osascript(script, { timeout: 5000 });
       return { clicked: true };
     } catch (e) {
-      return { clicked: false, error: e.message };
+      // osascript stderr is verbose; trim to first line and add a hint.
+      const msg = String(e.message || '').split('\n')[0];
+      return {
+        clicked: false,
+        error: msg,
+        hint: 'Check the menu path against scanApp() output. Segment names must match exactly (case-sensitive). Some apps localize menu labels.',
+      };
     }
   },
 
@@ -769,7 +795,7 @@ const win = {
       const parsed = JSON.parse(raw || '[]');
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch (e) {
-      return { error: e.message };
+      return { error: e.message, hint: 'Could not enumerate displays via System.Windows.Forms.Screen.' };
     }
   },
 
@@ -971,6 +997,56 @@ const win = {
   openApp(appName) {
     const name = validateAppName(appName);
     powershell(`Start-Process '${sanitizePS(name)}'`);
+  },
+
+  /** Click a menu item: "File > Save As" or "Edit > Find > Find Next".
+   *  Walks the menubar via UI Automation, expanding intermediate items via
+   *  ExpandCollapsePattern and invoking the leaf via InvokePattern. Headless. */
+  clickMenu(appName, menuPath) {
+    const name = validateAppName(appName);
+    if (typeof menuPath !== 'string') return { clicked: false, error: 'menuPath must be a string', hint: 'Format: "Menu > Item" or "Menu > Sub > Item"' };
+    if (!this.isRunning(name)) return this._notRunningError(name);
+    const parts = menuPath.split('>').map(s => s.trim()).filter(Boolean);
+    if (parts.length < 2) return { clicked: false, error: 'menuPath needs at least two segments', hint: 'Format: "Menu > Item" or "Menu > Sub > Item"' };
+    for (const p of parts) validateLabel(p, 'menu segment');
+
+    const safeName = sanitizePS(name);
+    const segArr = parts.map(p => `'${sanitizePS(p)}'`).join(', ');
+    const raw = powershell(`
+      Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+      $auto = [System.Windows.Automation.AutomationElement]
+      $segments = @(${segArr})
+      $root = $auto::RootElement
+      $appCond = New-Object System.Windows.Automation.PropertyCondition($auto::NameProperty, '${safeName}')
+      $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $appCond)
+      if (-not $app) { ConvertTo-Json @{ clicked = $false; error = 'app not found' }; return }
+      $current = $app
+      for ($i = 0; $i -lt $segments.Count; $i++) {
+        $segName = $segments[$i]
+        $isLast = ($i -eq $segments.Count - 1)
+        $cond = New-Object System.Windows.Automation.PropertyCondition($auto::NameProperty, $segName)
+        $next = $current.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        if (-not $next) {
+          ConvertTo-Json @{ clicked = $false; error = "menu segment '$segName' not found"; depth = $i; hint = 'Check the menu path against scanApp() output. Names must match exactly.' }; return
+        }
+        if ($isLast) {
+          $invoke = $null
+          if ($next.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+            $invoke.Invoke()
+            ConvertTo-Json @{ clicked = $true; method = 'InvokePattern' }; return
+          }
+          ConvertTo-Json @{ clicked = $false; error = "menu item '$segName' is not invokable"; hint = 'Item exists but exposes no InvokePattern — try a child item or open the parent menu first.' }; return
+        } else {
+          $expand = $null
+          if ($next.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expand)) {
+            $expand.Expand()
+          }
+          $current = $next
+        }
+      }
+      ConvertTo-Json @{ clicked = $false; error = 'unreachable' }
+    `);
+    return JSON.parse(raw || '{}');
   },
 
   scroll(appName, direction = 'down', amount = 5) {

@@ -84,11 +84,12 @@ async function main() {
     }
 
     // ── Step 2: open the About sheet via typed tool ──
-    step('Step 2: dispatch click_about_calculator — opens the About sheet');
+    step('Step 2: dispatch click_about_calculator — opens the About panel');
     const r2 = await client.callTool({ name: 'click_about_calculator', arguments: {} });
     if (r2.isError) { fail(`click_about_calculator failed: ${jsonText(r2).error || ''}`); process.exit(1); }
-    ok(`Dispatched: ${jsonText(r2).dispatched} on "${jsonText(r2).element}"`);
-    await wait(900); // let the sheet animate in
+    const r2data = jsonText(r2);
+    ok(`Dispatched: ${r2data.dispatched} on "${r2data.element || r2data.menuPath || r2data.target || '?'}"`);
+    await wait(1100); // let the panel animate in
 
     // ── Step 3: re-scan — sheet recursion should pick up the new buttons ──
     step('Step 3: scan_app again — sheet recursion should add new typed tools');
@@ -101,22 +102,34 @@ async function main() {
       warn('No new tools detected — the About sheet may not have rendered with accessibility');
     }
 
-    // ── Step 4: dismiss the sheet via a typed tool ──
-    step('Step 4: dismiss the sheet via a typed tool from the new list');
-    // Common dismiss labels: OK, Close, Done. Click whichever showed up.
-    const dismissCandidates = ['click_ok', 'click_close', 'click_done', 'click_dismiss'];
-    const dismissTool = scan1.tools.find(t => dismissCandidates.includes(t.name))?.name;
+    // ── Step 4: dismiss the panel via a typed tool ──
+    step('Step 4: dismiss the panel via a NEW tool that didn\'t exist before Step 2');
+    // Pick from the *new* tools first — those are the ones that appeared because
+    // the panel opened. Window chrome dismiss (click_close_button) is preferred
+    // over click_close (which is a menubar File>Close item, wrong target).
+    const dismissPriority = ['click_ok', 'click_done', 'click_dismiss', 'click_close_button'];
+    const dismissTool = dismissPriority
+      .map(n => scan1.tools.find(t => t.name === n && newTools.includes(t.name)))
+      .find(Boolean)?.name;
+
     if (dismissTool) {
+      info(`Picking ${dismissTool} — registered just now by the sheet/window scan`);
       const r4 = await client.callTool({ name: dismissTool, arguments: {} });
-      if (!r4.isError) ok(`Dispatched ${dismissTool} — ${jsonText(r4).dispatched}`);
-      else warn(`${dismissTool} errored: ${jsonText(r4).error || ''}`);
+      if (!r4.isError) {
+        const d4 = jsonText(r4);
+        ok(`Dispatched ${dismissTool} — ${d4.dispatched} on "${d4.element || d4.menuPath || '?'}"`);
+      } else {
+        warn(`${dismissTool} errored: ${jsonText(r4).error || ''}`);
+      }
     } else {
-      warn(`No dismiss tool in the new list. Sheet may not be a standard sheet — falling back to navigate to close.`);
-      // Fallback through MCP only — call the platform escape-hatch press_keys via toMCPTools
-      const escTool = (await client.listTools()).tools.find(t => t.name === 'interact_press_keys' || t.name === 'press_keys');
+      warn('No dismiss tool found in the newly-registered list — falling back to Escape via interact_press_keys');
+      const allTools = (await client.listTools()).tools;
+      const escTool = allTools.find(t => t.name === 'interact_press_keys' || t.name === 'press_keys' || t.name === 'interact_pressKeys');
       if (escTool) {
         await client.callTool({ name: escTool.name, arguments: { app: APP, shortcut: 'escape' } });
-        info('Sent Escape via the platform escape-hatch tool');
+        info(`Sent Escape via ${escTool.name}`);
+      } else {
+        warn(`No press_keys-style escape tool exposed; available capabilities: ${allTools.map(t => t.name).slice(0, 8).join(', ')}`);
       }
     }
     await wait(700);
@@ -144,13 +157,14 @@ async function main() {
 
     // ── Step 7: cleanup — hide Calculator ──
     step('Step 7: dispatch click_hide_calculator + observe to verify');
+    const frontFromObserve = (data) => data?.context?.activeApp || data?.apps?.find(a => a.active)?.name || 'unknown';
     const beforeObs = jsonText(await client.callTool({ name: 'observe', arguments: {} }));
-    info(`Frontmost before hide: ${beforeObs.activeApp || beforeObs.frontmost || 'unknown'}`);
+    info(`Frontmost before hide: ${frontFromObserve(beforeObs)}`);
     const hide = await client.callTool({ name: 'click_hide_calculator', arguments: {} });
     if (!hide.isError) {
-      await wait(400);
+      await wait(500);
       const afterObs = jsonText(await client.callTool({ name: 'observe', arguments: {} }));
-      ok(`Hidden — frontmost is now: ${afterObs.activeApp || afterObs.frontmost || 'unknown'}`);
+      ok(`Hidden — frontmost is now: ${frontFromObserve(afterObs)}`);
     } else {
       warn(`click_hide_calculator errored: ${jsonText(hide).error || ''}`);
     }

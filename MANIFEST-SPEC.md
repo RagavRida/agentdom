@@ -5,6 +5,11 @@ it through typed tools, with semantic intent names instead of raw UI labels.
 
 Same shape as `llms.txt` for sites or OpenAPI for HTTP APIs — but for app UIs.
 
+> **See `manifests/README.md` for the curated registry of manifests already
+> shipped with this package** — Calculator, TextEdit, Finder, git, docker,
+> Slack, VS Code, Stub API, example.com — covering all four MCP surfaces
+> (desktop / cli / api / web).
+
 ---
 
 ## Why ship a manifest

@@ -173,13 +173,14 @@ const mac = {
     }
   },
 
-  /** Check whether `appName` is running. Fast probe (~100ms). */
+  /** Check whether `appName` is running. Uses the AX bridge so bidi marks
+   *  in app names (e.g. "‎WhatsApp" / U+200E) and macOS-26 SwiftUI app
+   *  visibility quirks don't cause false negatives. */
   isRunning(appName) {
     const name = validateAppName(appName);
     try {
-      // .whose returns an empty list (length 0) instead of throwing when no match.
-      const out = jxa(`Application("System Events").processes.whose({name: "${sanitizeAS(name)}"}).length`, { timeout: 2000 });
-      return parseInt(out, 10) > 0;
+      const r = axBridge('is_running', name);
+      return !!(r && r.running);
     } catch {
       return false;
     }

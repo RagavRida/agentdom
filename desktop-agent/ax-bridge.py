@@ -18,10 +18,17 @@ Requires: pyobjc-framework-ApplicationServices.
 
 from __future__ import annotations
 import json
+import re
 import sys
 
 import AppKit  # type: ignore
 import ApplicationServices as AS  # type: ignore
+
+# Bidi marks (LTR/RTL/embedding/isolate) that some app names ship with —
+# strip them for matching so callers don't have to know.
+BIDI_RE = re.compile(r"[‎‏‪-‮⁦-⁩]")
+def _norm(s: str) -> str:
+    return BIDI_RE.sub("", s) if s else ""
 
 # ── Role table — kept identical to scanApp() so the IR adapters work unchanged ──
 ROLE_TO_TYPE = {
@@ -57,23 +64,56 @@ FIELD_ROLES = {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"}
 
 MAX_DEPTH_DEFAULT = 8
 MAX_CHILDREN_PER_NODE = 80
+# Hard cap on total elements emitted from a single scan. Prevents apps with
+# massive content trees (Terminal scrollback, IDE source files, log viewers)
+# from making scan_app run for tens of seconds.
+MAX_TOTAL_ELEMENTS = 800
+# Per-string cap on label / value / description.  Terminal's text area
+# returns the entire scrollback in AXValue — without this, a single scan
+# can produce tens of MB of JSON.
+MAX_STRING_LEN = 2000
 
 
 # ── PyObjC wrappers ─────────────────────────────────────────────────────────
 def find_pid(app_name: str) -> int | None:
+    target = _norm(app_name)
     ws = AppKit.NSWorkspace.sharedWorkspace()
     for a in ws.runningApplications():
-        if a.localizedName() == app_name:
+        n = a.localizedName()
+        if n and _norm(n) == target:
             return int(a.processIdentifier())
     return None
 
 
 def find_running_app(app_name: str):
+    target = _norm(app_name)
     ws = AppKit.NSWorkspace.sharedWorkspace()
     for a in ws.runningApplications():
-        if a.localizedName() == app_name:
+        n = a.localizedName()
+        if n and _norm(n) == target:
             return a
     return None
+
+
+def list_running_apps() -> list:
+    """Enumerate every regular (UI-bearing) app NSWorkspace knows about,
+    without System Events' Tahoe-era window-count blindness."""
+    out = []
+    ws = AppKit.NSWorkspace.sharedWorkspace()
+    for a in ws.runningApplications():
+        # NSApplicationActivationPolicyRegular = 0 (apps with a UI / dock icon).
+        if a.activationPolicy() != 0:
+            continue
+        name = a.localizedName()
+        if not name:
+            continue
+        out.append({
+            "name": str(name),
+            "pid": int(a.processIdentifier()),
+            "active": bool(a.isActive()),
+            "hidden": bool(a.isHidden()),
+        })
+    return out
 
 
 def ensure_visible(app_name: str) -> int | None:
@@ -121,12 +161,25 @@ def ax_set(el, attr, value):
     return AS.AXUIElementSetAttributeValue(el, attr, value)
 
 
+def truncate(s):
+    """Cap string length for any payload field — prevents Terminal-size blowups."""
+    if not isinstance(s, str):
+        return s
+    if len(s) <= MAX_STRING_LEN:
+        return s
+    return s[:MAX_STRING_LEN] + f"... [+{len(s) - MAX_STRING_LEN} more chars]"
+
+
 def jsonable(v):
     """Best-effort conversion of an AX value to a JSON-safe scalar."""
-    if v is None or isinstance(v, (str, int, float)) or isinstance(v, bool):
+    if v is None:
+        return None
+    if isinstance(v, bool) or isinstance(v, (int, float)):
         return v
+    if isinstance(v, str):
+        return truncate(v)
     try:
-        return str(v)[:500]
+        return truncate(str(v))
     except Exception:
         return None
 
@@ -154,7 +207,7 @@ def describe(role: str, label: str, val) -> str:
 
 
 def walk(el, depth: int, max_depth: int, parent_path: str, out: list):
-    if depth > max_depth:
+    if depth > max_depth or len(out) >= MAX_TOTAL_ELEMENTS:
         return
     role = ax_attr(el, "AXRole") or ""
     title = ax_attr(el, "AXTitle") or ""
@@ -173,13 +226,13 @@ def walk(el, depth: int, max_depth: int, parent_path: str, out: list):
         friendly = ROLE_TO_TYPE.get(role, role)
         out.append({
             "type": friendly,
-            "label": label,
-            "description": describe(role, label, val),
+            "label": truncate(label),
+            "description": truncate(describe(role, label, val)),
             "value": jsonable(val),
             "enabled": bool(enabled) if enabled is not None else True,
             "focused": bool(focused) if focused is not None else False,
             "actions": ax_actions(el),
-            "path": parent_path,
+            "path": truncate(parent_path),
             "position": None,
             "size": None,
         })
@@ -187,6 +240,8 @@ def walk(el, depth: int, max_depth: int, parent_path: str, out: list):
     kids = ax_attr(el, "AXChildren") or []
     next_path = parent_path + "/" + (title or role)
     for k in list(kids)[:MAX_CHILDREN_PER_NODE]:
+        if len(out) >= MAX_TOTAL_ELEMENTS:
+            return
         walk(k, depth + 1, max_depth, next_path, out)
 
 
@@ -349,6 +404,12 @@ def main(argv: list[str]) -> None:
                 print(json.dumps({"error": "type requires <app_name> <field_label> <text> [index]"})); return
             idx = int(argv[5]) if len(argv) >= 6 and argv[5] else 1
             print(json.dumps(type_into(argv[2], argv[3], argv[4], idx)))
+        elif verb == "list_apps":
+            print(json.dumps(list_running_apps()))
+        elif verb == "is_running":
+            if len(argv) < 3:
+                print(json.dumps({"error": "is_running requires <app_name>"})); return
+            print(json.dumps({"running": find_pid(argv[2]) is not None}))
         else:
             print(json.dumps({"error": f"Unknown verb: {verb}"}))
     except Exception as e:

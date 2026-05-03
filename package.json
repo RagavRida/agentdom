@@ -41,6 +41,7 @@
     "demo:calculator-complex": "node test/calculator-complex.demo.js",
     "demo:multi-app": "node test/multi-app.demo.js",
     "demo:branching": "node test/branching.demo.js",
+    "demo:coverage": "node test/app-coverage.demo.js",
     "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
     "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
     "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",

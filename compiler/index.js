@@ -10,12 +10,16 @@
 
 const { fromDesktop } = require('./from-desktop');
 const { fromWeb } = require('./from-web');
+const { fromCLI } = require('./from-cli');
+const { fromOpenAPI } = require('./from-openapi');
 const { optimize } = require('./optimize');
 const { toOpenAI } = require('./to-openai');
 
 const ADAPTERS = {
   desktop: fromDesktop,
   web: fromWeb,
+  cli: fromCLI,
+  api: fromOpenAPI,
 };
 
 const TARGETS = {
@@ -38,6 +42,8 @@ module.exports = {
   compile,
   fromDesktop,
   fromWeb,
+  fromCLI,
+  fromOpenAPI,
   optimize,
   toOpenAI,
 };

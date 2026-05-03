@@ -828,7 +828,7 @@ const win = {
     const name = validateAppName(appName);
     if (!this.isRunning(name)) return this._notRunningError(name);
     const safe = sanitizePS(name);
-    this.activate(name);
+    // No activate(): UI Automation reads from RootElement globally — scanning is headless.
     try {
       const raw = powershell(`
         Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes

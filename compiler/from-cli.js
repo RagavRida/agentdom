@@ -16,9 +16,10 @@
 
 const { makeIR, makeField, makeAction, makeForm } = require('./ir');
 
-// Section header: any prose ending in "...commands:", "...options:", "...flags:", etc.
-// Lenient to handle "Basic Commands (Beginner):", "Global Flags:", "Available Commands:".
-const SECTION_RE = /^.*?(commands?|options?|flags?|subcommands?|arguments?):\s*$/i;
+// Section header: any prose containing "...commands", "...options", "...flags", etc.
+// followed by ":" with optional non-colon content in between (handles parenthetical
+// qualifiers like "Basic Commands (Beginner):").
+const SECTION_RE = /^.*?(commands?|options?|flags?|subcommands?|arguments?)[^:\n]*:\s*$/i;
 const SUBCOMMAND_RE = /^\s{2,}([a-zA-Z][\w-]*)\s{2,}(.+?)\s*$/;
 const FLAG_RE = /^\s{2,}(?:(-[a-zA-Z]),?\s+)?(--[\w-]+)(?:[\s=]([A-Z_<][\w<>\[\]]*))?\s{2,}(.+?)\s*$/;
 const SHORT_ONLY_FLAG_RE = /^\s{2,}(-[a-zA-Z])(?:[\s=]([A-Z_<][\w<>\[\]]*))?\s{2,}(.+?)\s*$/;

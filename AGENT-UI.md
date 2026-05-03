@@ -54,12 +54,15 @@ npx agentdom --version
 
 Two MCP servers ship in the package:
 
-| Server                       | Surface                          | Binary                     |
+| Server                       | Surface                          | Script                     |
 | ---------------------------- | -------------------------------- | -------------------------- |
-| `mcp-server.js`              | Web (Puppeteer-driven Chromium)  | `agentdom-mcp` (alias)     |
-| `desktop-mcp-server.js`      | macOS / Windows native apps      | `agentdom-mcp-desktop`     |
+| `mcp-server.js`              | Web (Puppeteer-driven Chromium)  | `npm run mcp`              |
+| `desktop-mcp-server.js`      | macOS / Windows native apps      | `npm run mcp:desktop`      |
+| `mcp-cli-server.js`          | Any CLI binary on PATH           | `npm run mcp:cli`          |
+| `mcp-api-server.js`          | Any OpenAPI 3.x spec             | `npm run mcp:api`          |
 
-Both speak MCP over stdio.
+All four speak MCP over stdio. Each exposes a single `scan_*` meta-tool that
+auto-emits typed tools via `compile()`.
 
 ---
 
@@ -256,12 +259,13 @@ every navigation is the default, not the optimization.
 
 ## 9. Status today
 
-| Server               | Auto-emits typed tools? | Path                                                |
-| -------------------- | ----------------------- | --------------------------------------------------- |
-| Web `mcp-server.js`  | ✅ via `scan_with_tools` + `tools/list_changed` | Uses the legacy `ToolSynthesizer`. Migrating to the new compiler is a follow-up. |
-| Desktop `desktop-mcp-server.js` | ✅ via `scan_app` + `tools/list_changed`, routed through the new `compiler/`. | Form tools dispatch to `typeIntoField` per arg + `clickElement` on the submit; action tools dispatch to `clickElement`; navigation dispatches to `clickElement` on the link label. Low-level `platform.toMCPTools()` capabilities still exposed as escape hatches. |
-| CLI / API            | ❌ not yet wrapped as MCP servers — `compile()` already produces the tool list; needs an `mcp-cli-server.js` / `mcp-api-server.js` shim with stdio plumbing. ~1h each. |
+| Server                              | Meta-tool       | Status |
+| ----------------------------------- | --------------- | ------ |
+| Web `mcp-server.js`                 | `scan_with_tools` | ✅ Auto-emits typed tools (legacy `ToolSynthesizer`; migration to the new compiler is a follow-up). |
+| Desktop `desktop-mcp-server.js`     | `scan_app`      | ✅ Routed through `compiler/`. Forms → `typeIntoField` per arg + `clickElement` on submit; actions → `clickElement`; navigation → `clickElement` on link label. `platform.toMCPTools()` capabilities exposed as escape hatches. |
+| CLI `mcp-cli-server.js`             | `scan_cli`      | ✅ Routed through `compiler/`. Forms → `execFileSync(binary, [--flag value, ...])`; actions → `execFileSync(binary, [subcommand])`. Returns `{exitCode, stdout, stderr}`. |
+| API `mcp-api-server.js`             | `scan_api`      | ✅ Routed through `compiler/`. Forms/actions → `fetch(base + path, {method, headers, body})`. Splits args by `_internal.fields[].selector` prefix (`path:` / `query:` / `header:` / `body:`). |
 
-The compiler shipped this branch (`compiler/index.js`) is the canonical path
-forward. New MCP servers should call `compile(scan, { from, to: 'mcp' })`
-rather than re-implementing tool synthesis.
+All four servers call `compile(scan, { from, to: 'mcp' })` internally — same IR,
+same optimizer, same MCP shape. New surfaces should follow this contract rather
+than re-implementing tool synthesis.

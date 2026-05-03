@@ -98,6 +98,41 @@ async function withRetry(fn, { retries = 1, delay = 500 } = {}) {
 }
 
 // ════════════════════════════════════════════════
+//  Label disambiguation — handles duplicate labels in the UI tree
+// ════════════════════════════════════════════════
+
+/**
+ * Append " (n)" to elements whose label appears more than once.
+ * The first occurrence becomes "Label (1)", second "Label (2)", etc.
+ * Preserves the original label as `originalLabel` for callers that want it.
+ */
+function disambiguateLabels(elements) {
+  if (!Array.isArray(elements)) return elements;
+  const counts = {};
+  for (const e of elements) {
+    if (e && e.label) counts[e.label] = (counts[e.label] || 0) + 1;
+  }
+  const seen = {};
+  for (const e of elements) {
+    if (!e || !e.label || counts[e.label] <= 1) continue;
+    seen[e.label] = (seen[e.label] || 0) + 1;
+    e.originalLabel = e.label;
+    e.duplicateIndex = seen[e.label];
+    e.duplicateCount = counts[e.label];
+    e.label = `${e.label} (${seen[e.label]})`;
+  }
+  return elements;
+}
+
+/** Parse a label that may carry a "Label (N)" disambiguator. */
+function parseLabelIndex(label) {
+  if (typeof label !== 'string') return { label, index: 1 };
+  const m = label.match(/^(.*) \((\d+)\)$/);
+  if (!m) return { label, index: 1 };
+  return { label: m[1], index: parseInt(m[2], 10) };
+}
+
+// ════════════════════════════════════════════════
 //  macOS — AppleScript / JXA Accessibility Bridge
 // ════════════════════════════════════════════════
 
@@ -118,6 +153,51 @@ const mac = {
     } catch (e) {
       return { ok: false, error: e.message, hint: 'osascript unavailable. Are you on macOS?' };
     }
+  },
+
+  /** Check whether `appName` is running. Fast probe (~100ms). */
+  isRunning(appName) {
+    const name = validateAppName(appName);
+    try {
+      // .whose returns an empty list (length 0) instead of throwing when no match.
+      const out = jxa(`Application("System Events").processes.whose({name: "${sanitizeAS(name)}"}).length`, { timeout: 2000 });
+      return parseInt(out, 10) > 0;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Enumerate displays. Returns [{id, x, y, width, height, primary}]. */
+  getDisplays() {
+    const py = `
+import Quartz
+import json
+err, ids, count = Quartz.CGGetActiveDisplayList(16, None, None)
+out = []
+main = Quartz.CGMainDisplayID()
+for did in ids:
+    b = Quartz.CGDisplayBounds(did)
+    out.append({
+        "id": int(did),
+        "x": int(b.origin.x),
+        "y": int(b.origin.y),
+        "width": int(b.size.width),
+        "height": int(b.size.height),
+        "primary": int(did) == int(main),
+    })
+print(json.dumps(out))
+`;
+    try {
+      const raw = execFileSync('python3', ['-c', py], { encoding: 'utf-8', timeout: 3000 }).trim();
+      return JSON.parse(raw);
+    } catch (e) {
+      return { error: e.message, hint: 'python3 + Quartz required for display enumeration on macOS.' };
+    }
+  },
+
+  /** Build a structured "app not running" error matching scanApp's failure shape. */
+  _notRunningError(name) {
+    return { error: 'App not running', app: name, hint: `Call openApp(${JSON.stringify(name)}) first, or start the app manually.` };
   },
 
   listApps() {
@@ -160,6 +240,7 @@ const mac = {
   /** Scan an app's UI tree — returns agent-readable structured elements. */
   scanApp(appName) {
     const name = validateAppName(appName);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safeName = sanitizeAS(name);
     const script = `
       const se = Application("System Events");
@@ -219,38 +300,48 @@ const mac = {
       JSON.stringify(elements);
     `;
     try {
-      return JSON.parse(jxa(script, { timeout: 15000 }));
+      const elements = JSON.parse(jxa(script, { timeout: 15000 }));
+      return disambiguateLabels(elements);
     } catch (e) {
+      if (!this.isRunning(name)) return this._notRunningError(name);
       const perm = this.checkPermissions();
-      return { error: e.message, hint: perm.ok ? 'App may not be running, or its accessibility tree is unavailable.' : perm.hint };
+      return { error: e.message, hint: perm.ok ? 'App is running but its accessibility tree is unavailable.' : perm.hint };
     }
   },
 
-  /** Click a UI element by label — uses AXPress action, no activation. */
+  /** Click a UI element by label — uses AXPress action, no activation.
+   *  Accepts disambiguators: "OK (2)" targets the second matching "OK". */
   clickElement(appName, label) {
     const name = validateAppName(appName);
     const lbl = validateLabel(label);
+    const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safeName = sanitizeAS(name);
-    const safeLbl = sanitizeAS(lbl);
+    const safeLbl = sanitizeAS(bare);
     const script = `
       const se = Application("System Events");
       const proc = se.processes.byName("${safeName}");
+      const target = ${targetIdx};
+      const state = { matched: 0 };
       function findAndPress(el, depth) {
         if (depth > 5) return false;
         try {
           const title = el.title() || el.description() || '';
           if (title === "${safeLbl}") {
-            try {
-              const actions = el.actions();
-              for (let a = 0; a < actions.length; a++) {
-                const n = actions[a].name();
-                if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
-                  actions[a].perform();
-                  return true;
+            state.matched++;
+            if (state.matched === target) {
+              try {
+                const actions = el.actions();
+                for (let a = 0; a < actions.length; a++) {
+                  const n = actions[a].name();
+                  if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
+                    actions[a].perform();
+                    return true;
+                  }
                 }
-              }
-            } catch(e) {}
-            try { el.click(); return true; } catch(e) {}
+              } catch(e) {}
+              try { el.click(); return true; } catch(e) {}
+            }
           }
           try {
             const children = el.uiElements();
@@ -266,16 +357,26 @@ const mac = {
       for (let w = 0; w < wins.length; w++) {
         if (findAndPress(wins[w], 0)) { found = true; break; }
       }
-      JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}" });
+      JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}", index: target, totalMatched: state.matched });
     `;
-    return JSON.parse(jxa(script, { timeout: 10000 }));
+    const result = JSON.parse(jxa(script, { timeout: 10000 }));
+    if (!result.clicked && result.totalMatched > 0 && result.totalMatched < targetIdx) {
+      result.error = `Found ${result.totalMatched} match(es) for "${bare}", but index ${targetIdx} requested.`;
+    }
+    return result;
   },
 
-  /** Click at screen coordinates. */
+  /** Click at global screen coordinates. Prefers cliclick (CGEvent — multi-display safe). */
   clickAt(x, y) {
     const cx = validateCoord(x, 'x');
     const cy = validateCoord(y, 'y');
-    osascript(`tell application "System Events" to click at {${cx}, ${cy}}`);
+    try {
+      execFileSync('which', ['cliclick'], { stdio: 'ignore' });
+      execFileSync('cliclick', [`c:${cx},${cy}`]);
+    } catch {
+      // AppleScript fallback uses primary-display coords; may miss on secondary monitors.
+      osascript(`tell application "System Events" to click at {${cx}, ${cy}}`);
+    }
   },
 
   /** Type text into the focused field of `appName`. ASCII → keystroke; non-ASCII → clipboard paste. */
@@ -319,17 +420,22 @@ const mac = {
     }
   },
 
-  /** Type into a specific field by label — uses AXSetValue. */
+  /** Type into a specific field by label — uses AXSetValue.
+   *  Accepts disambiguators: "Search (2)" targets the second matching "Search". */
   typeIntoField(appName, fieldLabel, text) {
     const name = validateAppName(appName);
     const lbl = validateLabel(fieldLabel, 'fieldLabel');
     const txt = validateLabel(typeof text === 'string' ? text : String(text), 'text');
+    const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safeName = sanitizeAS(name);
-    const safeLbl = sanitizeAS(lbl);
+    const safeLbl = sanitizeAS(bare);
     const safeTxt = sanitizeAS(txt);
     const script = `
       const se = Application("System Events");
       const proc = se.processes.byName("${safeName}");
+      const target = ${targetIdx};
+      const state = { matched: 0 };
       function findField(el, depth) {
         if (depth > 5) return null;
         try {
@@ -337,7 +443,8 @@ const mac = {
           const title = el.title() || el.description() || '';
           if (['AXTextField','AXTextArea','AXComboBox','AXSearchField'].includes(role) &&
               (title.includes("${safeLbl}") || title === "${safeLbl}")) {
-            return el;
+            state.matched++;
+            if (state.matched === target) return el;
           }
           const children = el.uiElements();
           for (let i = 0; i < children.length; i++) {
@@ -358,7 +465,7 @@ const mac = {
           break;
         }
       }
-      JSON.stringify({ typed: done, method: 'AXSetValue', field: "${safeLbl}" });
+      JSON.stringify({ typed: done, method: 'AXSetValue', field: "${safeLbl}", index: target, totalMatched: state.matched });
     `;
     return JSON.parse(jxa(script, { timeout: 10000 }));
   },
@@ -567,6 +674,49 @@ const win = {
     }
   },
 
+  /** Check whether `appName` matches any running window title. */
+  isRunning(appName) {
+    const name = validateAppName(appName);
+    const safe = sanitizePS(name);
+    try {
+      const out = powershell(`(Get-Process | Where-Object {$_.MainWindowTitle -like '*${safe}*'} | Measure-Object).Count`);
+      return parseInt(out.trim(), 10) > 0;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Enumerate displays. Returns [{id, x, y, width, height, primary}]. */
+  getDisplays() {
+    try {
+      const raw = powershell(`
+        Add-Type -AssemblyName System.Windows.Forms
+        $screens = [System.Windows.Forms.Screen]::AllScreens
+        $out = @()
+        for ($i = 0; $i -lt $screens.Length; $i++) {
+          $s = $screens[$i]
+          $out += @{
+            id = $i
+            x = $s.Bounds.X
+            y = $s.Bounds.Y
+            width = $s.Bounds.Width
+            height = $s.Bounds.Height
+            primary = $s.Primary
+          }
+        }
+        ConvertTo-Json -InputObject $out -Depth 3
+      `);
+      const parsed = JSON.parse(raw || '[]');
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+
+  _notRunningError(name) {
+    return { error: 'App not running', app: name, hint: `Call openApp(${JSON.stringify(name)}) first, or start the app manually.` };
+  },
+
   listApps() {
     const raw = powershell(`
       Add-Type -AssemblyName UIAutomationClient
@@ -590,33 +740,43 @@ const win = {
 
   scanApp(appName) {
     const name = validateAppName(appName);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safe = sanitizePS(name);
     this.activate(name);
-    const raw = powershell(`
-      Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-      $auto = [System.Windows.Automation.AutomationElement]
-      $root = $auto::RootElement
-      $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safe}')
-      $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
-      if (-not $app) { '[]'; return }
-      $all = $app.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-      $result = @()
-      foreach ($el in $all) {
-        $n = $el.Current.Name
-        $type = $el.Current.ControlType.ProgrammaticName
-        $result += @{ role = $type; label = $n }
-      }
-      $result | ConvertTo-Json -Depth 3
-    `);
-    return JSON.parse(raw || '[]');
+    try {
+      const raw = powershell(`
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+        $auto = [System.Windows.Automation.AutomationElement]
+        $root = $auto::RootElement
+        $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safe}')
+        $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+        if (-not $app) { '[]'; return }
+        $all = $app.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        $result = @()
+        foreach ($el in $all) {
+          $n = $el.Current.Name
+          $type = $el.Current.ControlType.ProgrammaticName
+          $result += @{ role = $type; label = $n }
+        }
+        $result | ConvertTo-Json -Depth 3
+      `);
+      const parsed = JSON.parse(raw || '[]');
+      const arr = Array.isArray(parsed) ? parsed : [parsed];
+      return disambiguateLabels(arr);
+    } catch (e) {
+      return { error: e.message, hint: 'UI Automation tree unavailable for this app.' };
+    }
   },
 
-  /** Click a UI element by Name via UI Automation InvokePattern (background, no foregrounding). */
+  /** Click a UI element by Name via UI Automation InvokePattern (background, no foregrounding).
+   *  Accepts disambiguators: "OK (2)" targets the second matching "OK". */
   clickElement(appName, label) {
     const name = validateAppName(appName);
     const lbl = validateLabel(label);
+    const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safeName = sanitizePS(name);
-    const safeLbl = sanitizePS(lbl);
+    const safeLbl = sanitizePS(bare);
     const raw = powershell(`
       Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
       $auto = [System.Windows.Automation.AutomationElement]
@@ -625,35 +785,41 @@ const win = {
       $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $appCond)
       if (-not $app) { ConvertTo-Json @{ clicked = $false; error = 'app not found' }; return }
       $lblCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeLbl}')
-      $el = $app.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
-      if (-not $el) { ConvertTo-Json @{ clicked = $false; error = 'element not found' }; return }
+      $matches = $app.FindAll([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
+      if ($matches.Count -lt ${targetIdx}) {
+        ConvertTo-Json @{ clicked = $false; error = 'element not found'; matched = $matches.Count; index = ${targetIdx} }; return
+      }
+      $el = $matches[${targetIdx - 1}]
       $invoke = $null
       if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
         $invoke.Invoke()
-        ConvertTo-Json @{ clicked = $true; method = 'InvokePattern' }; return
+        ConvertTo-Json @{ clicked = $true; method = 'InvokePattern'; matched = $matches.Count; index = ${targetIdx} }; return
       }
       $toggle = $null
       if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) {
         $toggle.Toggle()
-        ConvertTo-Json @{ clicked = $true; method = 'TogglePattern' }; return
+        ConvertTo-Json @{ clicked = $true; method = 'TogglePattern'; matched = $matches.Count; index = ${targetIdx} }; return
       }
       $sel = $null
       if ($el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$sel)) {
         $sel.Select()
-        ConvertTo-Json @{ clicked = $true; method = 'SelectionItemPattern' }; return
+        ConvertTo-Json @{ clicked = $true; method = 'SelectionItemPattern'; matched = $matches.Count; index = ${targetIdx} }; return
       }
-      ConvertTo-Json @{ clicked = $false; error = 'no invokable pattern' }
+      ConvertTo-Json @{ clicked = $false; error = 'no invokable pattern'; matched = $matches.Count; index = ${targetIdx} }
     `);
     return JSON.parse(raw || '{}');
   },
 
-  /** Type into a specific field by label via UI Automation ValuePattern. */
+  /** Type into a specific field by label via UI Automation ValuePattern.
+   *  Accepts disambiguators: "Search (2)" targets the second matching "Search". */
   typeIntoField(appName, fieldLabel, text) {
     const name = validateAppName(appName);
     const lbl = validateLabel(fieldLabel, 'fieldLabel');
     const txt = validateLabel(typeof text === 'string' ? text : String(text), 'text');
+    const { label: bare, index: targetIdx } = parseLabelIndex(lbl);
+    if (!this.isRunning(name)) return this._notRunningError(name);
     const safeName = sanitizePS(name);
-    const safeLbl = sanitizePS(lbl);
+    const safeLbl = sanitizePS(bare);
     const safeTxt = sanitizePS(txt);
     const raw = powershell(`
       Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -663,15 +829,18 @@ const win = {
       $app = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $appCond)
       if (-not $app) { ConvertTo-Json @{ typed = $false; error = 'app not found' }; return }
       $lblCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, '${safeLbl}')
-      $el = $app.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
-      if (-not $el) { ConvertTo-Json @{ typed = $false; error = 'field not found' }; return }
+      $matches = $app.FindAll([System.Windows.Automation.TreeScope]::Descendants, $lblCond)
+      if ($matches.Count -lt ${targetIdx}) {
+        ConvertTo-Json @{ typed = $false; error = 'field not found'; matched = $matches.Count; index = ${targetIdx} }; return
+      }
+      $el = $matches[${targetIdx - 1}]
       $val = $null
       if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$val)) {
-        if ($val.Current.IsReadOnly) { ConvertTo-Json @{ typed = $false; error = 'field is read-only' }; return }
+        if ($val.Current.IsReadOnly) { ConvertTo-Json @{ typed = $false; error = 'field is read-only'; matched = $matches.Count; index = ${targetIdx} }; return }
         $val.SetValue('${safeTxt}')
-        ConvertTo-Json @{ typed = $true; method = 'ValuePattern' }; return
+        ConvertTo-Json @{ typed = $true; method = 'ValuePattern'; matched = $matches.Count; index = ${targetIdx} }; return
       }
-      ConvertTo-Json @{ typed = $false; error = 'field does not support ValuePattern' }
+      ConvertTo-Json @{ typed = $false; error = 'field does not support ValuePattern'; matched = $matches.Count; index = ${targetIdx} }
     `);
     return JSON.parse(raw || '{}');
   },
@@ -778,6 +947,12 @@ module.exports = {
 
   /** Probe permissions on the current platform. Call this first on startup. */
   checkPermissions: () => desktop?.checkPermissions?.() || { ok: false, hint: `Platform ${PLATFORM} not supported` },
+
+  /** Check whether `appName` is currently running. */
+  isRunning: (app) => desktop?.isRunning?.(app) ?? false,
+
+  /** Enumerate displays. Returns [{id, x, y, width, height, primary}]. */
+  getDisplays: () => desktop?.getDisplays?.() || [],
 
   listApps: () => desktop?.listApps() || [],
   activate: (app) => desktop?.activate(app),

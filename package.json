@@ -36,6 +36,7 @@
     "test": "node --test test/*.test.js",
     "test:compiler": "node compiler/__test__.js",
     "test:mcp": "node test/mcp-servers.test.js",
+    "demo:desktop": "node test/desktop-workflow.demo.js",
     "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
     "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
     "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",

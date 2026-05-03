@@ -9,6 +9,18 @@ named tools** the agent invokes by name. Selectors stay on the AgentDOM side.
 
 ---
 
+## Try it
+
+```bash
+npm run demo:desktop   # 8-step TextEdit workflow over MCP — see test/desktop-workflow.demo.js
+npm run test:mcp       # 11-case live MCP harness (CLI + API + Desktop)
+npm run test:compiler  # 16-case IR/optimizer/codegen smoke
+```
+
+The desktop demo will take focus on TextEdit, open and close the Find panel,
+open the Edit menu, hide/restore the app — all through typed tools dispatched
+through the MCP server. No selectors or coordinate clicks issued by the caller.
+
 ## TL;DR
 
 ```

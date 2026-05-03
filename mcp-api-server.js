@@ -18,6 +18,7 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { compile } = require('./compiler');
+const { loadManifest, mergeManifestTools } = require('./compiler/from-manifest');
 
 const FETCH_TIMEOUT = 30000;
 
@@ -28,6 +29,7 @@ const server = new Server(
 
 let currentBaseUrl = null;
 let currentSpecTitle = null;
+let currentManifest = null;
 let dynamicTools = [];
 const dynamicMap = new Map();
 
@@ -78,15 +80,20 @@ async function refreshScan(specInput, baseOverride) {
   const { ir, tools } = compile(spec, { from: 'api', to: 'mcp' });
   currentBaseUrl = base.replace(/\/+$/, '');
   currentSpecTitle = spec.info?.title || 'API';
-  dynamicTools = strip(tools);
+  currentManifest = loadManifest(currentSpecTitle);
+  const merged = mergeManifestTools(tools, currentManifest, currentSpecTitle);
+  dynamicTools = strip(merged);
   dynamicMap.clear();
-  for (const t of tools) dynamicMap.set(t.name, t);
+  for (const t of merged) dynamicMap.set(t.name, t);
   try { server.notification({ method: 'notifications/tools/list_changed' }); } catch (_) {}
 
   return {
     title: currentSpecTitle,
     base: currentBaseUrl,
     counts: { operations: ir.actions.length, forms: ir.forms.length },
+    manifest: currentManifest
+      ? { source: currentManifest.sourcePath, tools: currentManifest.tools.length, notes: currentManifest.notes }
+      : null,
     tools: dynamicTools,
   };
 }
@@ -133,9 +140,86 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+function subst(s, args) {
+  return typeof s === 'string'
+    ? s.replace(/\$\{(\w+)\}/g, (_, k) => (args[k] === undefined || args[k] === null ? '' : String(args[k])))
+    : s;
+}
+
+function substDeep(value, args) {
+  if (typeof value === 'string') return subst(value, args);
+  if (Array.isArray(value)) return value.map(v => substDeep(v, args));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = substDeep(v, args);
+    return out;
+  }
+  return value;
+}
+
+async function runApiSteps(action, callArgs) {
+  const trace = [];
+  let lastResponse = null;
+  let lastRead = null;
+
+  for (let i = 0; i < action.steps.length; i++) {
+    const step = action.steps[i];
+    if (step.request) {
+      const method = (subst(step.request.method, callArgs) || 'GET').toUpperCase();
+      const path = subst(step.request.path, callArgs);
+      const body = step.request.body !== undefined ? substDeep(step.request.body, callArgs) : null;
+      const url = currentBaseUrl + path;
+      const init = { method, headers: { 'Accept': 'application/json' } };
+      if (body !== null && method !== 'GET' && method !== 'HEAD') {
+        init.headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(body);
+      }
+      try {
+        const res = await fetchWithTimeout(url, init);
+        const text = await res.text();
+        let parsed = text;
+        const ctype = res.headers.get('content-type') || '';
+        if (ctype.includes('application/json') && text) {
+          try { parsed = JSON.parse(text); } catch (_) {}
+        }
+        lastResponse = { status: res.status, body: parsed, ok: res.ok };
+        trace.push({ step: i, request: { method, url }, status: res.status });
+      } catch (e) {
+        return { error: `step ${i} request failed: ${e.message}`, trace };
+      }
+    } else if (step.read !== undefined) {
+      const target = subst(step.read, callArgs);
+      if (target === 'body' || target === 'response') lastRead = lastResponse?.body;
+      else if (target === 'status') lastRead = lastResponse?.status;
+      else if (target.startsWith('body.')) {
+        const path = target.slice(5).split('.');
+        let v = lastResponse?.body;
+        for (const k of path) v = v?.[k];
+        lastRead = v;
+      } else lastRead = null;
+      trace.push({ step: i, read: target });
+    } else if (step.wait !== undefined) {
+      await new Promise(r => setTimeout(r, Number(step.wait) || 0));
+      trace.push({ step: i, waited: step.wait });
+    } else {
+      trace.push({ step: i, skipped: 'unrecognized', step_obj: step });
+    }
+  }
+
+  return { ok: true, dispatched: 'manifest:api-steps', trace, result: lastRead };
+}
+
 async function dispatch(tool, callArgs) {
   if (!currentBaseUrl) return { error: 'No active API. Call scan_api({ spec }) first.' };
   const internal = tool._internal || {};
+
+  if (internal.kind === 'manifest') {
+    const action = internal.manifest_action || {};
+    if (Array.isArray(action.steps) && action.steps.length > 0) {
+      return runApiSteps(action, callArgs);
+    }
+    return { error: `Manifest tool "${tool.name}" has no steps:` };
+  }
 
   // Action and form both have a selector that encodes {method, path}.
   const selector = internal.kind === 'form'

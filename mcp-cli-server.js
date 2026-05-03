@@ -17,6 +17,7 @@ const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { compile } = require('./compiler');
+const { loadManifest, mergeManifestTools } = require('./compiler/from-manifest');
 
 const HELP_TIMEOUT = 10000;
 const RUN_TIMEOUT = 30000;
@@ -28,6 +29,7 @@ const server = new Server(
 );
 
 let currentCommand = null;
+let currentManifest = null;
 let dynamicTools = [];
 const dynamicMap = new Map();
 
@@ -60,14 +62,19 @@ async function refreshScan(command) {
 
   const { ir, tools } = compile(helpText, { from: 'cli', to: 'mcp', command: cmd });
   currentCommand = cmd;
-  dynamicTools = strip(tools);
+  currentManifest = loadManifest(cmd);
+  const merged = mergeManifestTools(tools, currentManifest, cmd);
+  dynamicTools = strip(merged);
   dynamicMap.clear();
-  for (const t of tools) dynamicMap.set(t.name, t);
+  for (const t of merged) dynamicMap.set(t.name, t);
   try { server.notification({ method: 'notifications/tools/list_changed' }); } catch (_) {}
 
   return {
     command: cmd,
     counts: { actions: ir.actions.length, forms: ir.forms.length, fields: ir.forms[0]?.fields.length || 0 },
+    manifest: currentManifest
+      ? { source: currentManifest.sourcePath, tools: currentManifest.tools.length, notes: currentManifest.notes }
+      : null,
     tools: dynamicTools,
   };
 }
@@ -107,9 +114,76 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+function subst(s, args) {
+  return typeof s === 'string'
+    ? s.replace(/\$\{(\w+)\}/g, (_, k) => (args[k] === undefined || args[k] === null ? '' : String(args[k])))
+    : s;
+}
+
+async function runCliSteps(action, callArgs) {
+  const trace = [];
+  let lastRun = { stdout: '', stderr: '', exitCode: null };
+  let lastRead = null;
+
+  for (let i = 0; i < action.steps.length; i++) {
+    const step = action.steps[i];
+    if (step.run !== undefined) {
+      const cmdline = subst(step.run, callArgs);
+      const argv = cmdline.split(/\s+/).filter(Boolean);
+      if (!argv.length) { trace.push({ step: i, run: cmdline, error: 'empty command' }); continue; }
+      const [bin, ...args] = argv;
+      if (!COMMAND_RE.test(bin)) {
+        return { error: `unsafe binary "${bin}" in step ${i}`, trace };
+      }
+      try {
+        const out = execFileSync(bin, args, {
+          encoding: 'utf-8', timeout: RUN_TIMEOUT,
+          stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024,
+        });
+        lastRun = { stdout: out, stderr: '', exitCode: 0 };
+        trace.push({ step: i, run: cmdline, exitCode: 0, bytes: out.length });
+      } catch (e) {
+        lastRun = {
+          stdout: e.stdout?.toString() || '',
+          stderr: (e.stderr?.toString() || e.message || '').slice(0, 4000),
+          exitCode: e.status ?? null,
+        };
+        trace.push({ step: i, run: cmdline, exitCode: lastRun.exitCode, error: lastRun.stderr.slice(0, 200) });
+        return { error: `step ${i} run "${cmdline}" failed`, exitCode: lastRun.exitCode, stderr: lastRun.stderr, trace };
+      }
+    } else if (step.read !== undefined) {
+      const target = subst(step.read, callArgs);
+      if (target === 'stdout') lastRead = lastRun.stdout;
+      else if (target === 'stderr') lastRead = lastRun.stderr;
+      else if (target === 'exit_code' || target === 'exitCode') lastRead = lastRun.exitCode;
+      else lastRead = null;
+      trace.push({ step: i, read: target, length: typeof lastRead === 'string' ? lastRead.length : null });
+    } else if (step.wait !== undefined) {
+      await new Promise(r => setTimeout(r, Number(step.wait) || 0));
+      trace.push({ step: i, waited: step.wait });
+    } else {
+      trace.push({ step: i, skipped: 'unrecognized', step_obj: step });
+    }
+  }
+
+  return { ok: true, dispatched: 'manifest:cli-steps', trace, result: lastRead };
+}
+
 async function dispatch(tool, callArgs) {
   if (!currentCommand) return { error: 'No active command. Call scan_cli({ command }) first.' };
   const internal = tool._internal || {};
+
+  if (internal.kind === 'manifest') {
+    const action = internal.manifest_action || {};
+    if (Array.isArray(action.steps) && action.steps.length > 0) {
+      return runCliSteps(action, callArgs);
+    }
+    if (action.run) {
+      // Single-shot run shorthand.
+      return runCliSteps({ steps: [{ run: action.run }, { read: 'stdout' }] }, callArgs);
+    }
+    return { error: `Manifest tool "${tool.name}" has no executable directive (run: or steps:)` };
+  }
 
   if (internal.kind === 'action') {
     // selector format: "<command> <subcommand>"

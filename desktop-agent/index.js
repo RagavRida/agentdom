@@ -412,11 +412,62 @@ print(json.dumps(out))
         } catch(e) {}
         return false;
       }
+      // Try one specific menubar item by title and press its AXPress.
+      function pressIfMatch(el) {
+        try {
+          const t = el.title() || el.description() || '';
+          if (t !== "${safeLbl}") return false;
+          state.matched++;
+          if (state.matched !== target) return false;
+          try {
+            const actions = el.actions();
+            for (let a = 0; a < actions.length; a++) {
+              const n = actions[a].name();
+              if (n === 'AXPress' || n === 'AXConfirm' || n === 'AXPick') {
+                actions[a].perform();
+                return true;
+              }
+            }
+          } catch(e) {}
+          try { el.click(); return true; } catch(e) {}
+        } catch(e) {}
+        return false;
+      }
+      // Structured menubar walk: menuBars → menuBarItems → menus[0] → menuItems.
+      function searchMenuBars() {
+        try {
+          const bars = proc.menuBars();
+          for (let b = 0; b < bars.length; b++) {
+            const items = bars[b].menuBarItems();
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              if (pressIfMatch(item)) return true;
+              try {
+                const menu = item.menus()[0];
+                const mItems = menu.menuItems();
+                for (let j = 0; j < mItems.length; j++) {
+                  if (pressIfMatch(mItems[j])) return true;
+                  // One level of submenu nesting (e.g. View > Show > Sidebar).
+                  try {
+                    const sub = mItems[j].menus()[0];
+                    const subItems = sub.menuItems();
+                    for (let k = 0; k < subItems.length; k++) {
+                      if (pressIfMatch(subItems[k])) return true;
+                    }
+                  } catch(e) {}
+                }
+              } catch(e) {}
+            }
+          }
+        } catch(e) {}
+        return false;
+      }
       let found = false;
       const wins = proc.windows();
       for (let w = 0; w < wins.length; w++) {
         if (findAndPress(wins[w], 0)) { found = true; break; }
       }
+      if (!found) found = searchMenuBars();
       JSON.stringify({ clicked: found, method: 'AXPress', app: "${safeName}", element: "${safeLbl}", index: target, totalMatched: state.matched });
     `;
     const result = JSON.parse(jxa(script, { timeout: 10000 }));

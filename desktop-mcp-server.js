@@ -167,6 +167,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const internal = tool._internal || {};
 
     if (internal.kind === 'action') {
+      // Menu items have selectors like "menu/Calculator" — route to clickMenu
+      // for deterministic dispatch. clickMenu opens the parent menu, then
+      // clicks the item — works regardless of menu visibility.
+      if (typeof internal.selector === 'string' && internal.selector.startsWith('menu/')) {
+        const parent = internal.selector.slice(5);
+        if (parent && parent !== 'menubar') {
+          const r = desktop.clickMenu(currentApp, `${parent} > ${internal.label}`);
+          if (r && r.error) return r;
+          if (r && r.clicked === false) return { error: r.error || 'clickMenu reported failure', hint: r.hint };
+          return { dispatched: 'clickMenu', menuPath: `${parent} > ${internal.label}`, result: r };
+        }
+      }
       const r = desktop.clickElement(currentApp, internal.label);
       if (r && r.error) return r;
       return { dispatched: 'clickElement', element: internal.label, result: r };

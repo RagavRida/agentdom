@@ -212,7 +212,10 @@ def walk(el, depth: int, max_depth: int, parent_path: str, out: list):
     role = ax_attr(el, "AXRole") or ""
     title = ax_attr(el, "AXTitle") or ""
     desc = ax_attr(el, "AXDescription") or ""
-    label = title or desc
+    role_desc = ax_attr(el, "AXRoleDescription") or ""
+    # AppKit text views often have empty title+description; the human-friendly
+    # label lives in AXRoleDescription (e.g. TextEdit's "text entry area").
+    label = title or desc or role_desc
     val = ax_attr(el, "AXValue")
     enabled = ax_attr(el, "AXEnabled")
     focused = ax_attr(el, "AXFocused")
@@ -301,7 +304,7 @@ def click(app_name: str, label: str, target_idx: int = 1) -> dict:
         if depth > MAX_DEPTH_DEFAULT:
             return False
         role = ax_attr(el, "AXRole") or ""
-        title = ax_attr(el, "AXTitle") or ax_attr(el, "AXDescription") or ""
+        title = ax_attr(el, "AXTitle") or ax_attr(el, "AXDescription") or ax_attr(el, "AXRoleDescription") or ""
         if title == label:
             state["matched"] += 1
             if state["matched"] == target_idx:
@@ -345,7 +348,7 @@ def type_into(app_name: str, field_label: str, text: str, target_idx: int = 1) -
         if depth > MAX_DEPTH_DEFAULT or state["target"] is not None:
             return
         role = ax_attr(el, "AXRole") or ""
-        title = ax_attr(el, "AXTitle") or ax_attr(el, "AXDescription") or ""
+        title = ax_attr(el, "AXTitle") or ax_attr(el, "AXDescription") or ax_attr(el, "AXRoleDescription") or ""
         if role in FIELD_ROLES and (field_label in title or title == field_label):
             state["matched"] += 1
             if state["matched"] == target_idx:

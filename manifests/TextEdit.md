@@ -29,6 +29,19 @@ tools:
   - name: select_all
     description: Select all text in the current document.
     click: Select All
+  - name: write_note
+    description: Replace the current document body with the given text. Returns the document body for verification.
+    params:
+      text:
+        type: string
+        required: true
+        description: Text to write into the document.
+    steps:
+      - click: Select All
+      - type:
+          field: text entry area
+          text: ${text}
+      - read: text entry area
 ---
 
 # AgentDOM Manifest — TextEdit (macOS)

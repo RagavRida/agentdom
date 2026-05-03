@@ -177,13 +177,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Manifest-declared tools — owner-supplied semantic intents.
     if (internal.kind === 'manifest') {
       const action = internal.manifest_action || {};
+      if (Array.isArray(action.steps) && action.steps.length > 0) {
+        return runManifestSteps(action, callArgs);
+      }
       if (action.click) {
         const label = resolveAlias(action.click, currentManifest);
         const r = desktop.clickElement(currentApp, label);
         if (r && r.error) return r;
         return { dispatched: 'manifest:click', label, source: 'AGENTDOM.md', result: r };
       }
-      return { error: `Manifest tool "${tool.name}" has no executable directive (expected a click: field)` };
+      return { error: `Manifest tool "${tool.name}" has no executable directive (expected click: or steps:)` };
     }
 
     if (internal.kind === 'action') {
@@ -232,6 +235,89 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     return { error: `Unknown _internal.kind: ${internal.kind}` };
+  }
+
+  // ── Manifest step executor ──
+  // Step grammar (v1):
+  //   - click: <label-or-${param}>
+  //   - type: { field: <label>, text: <text-or-${param}> }
+  //   - read: <"display"|"clipboard"|field-label>
+  //   - expression_chars: <text-or-${param}>   (split chars, alias-resolve each, click)
+  //   - wait: <ms>
+  // ${name} substitution: replaced with String(callArgs[name] ?? '').
+  // Returns { ok|error, steps: [...trace], result: <last read value> }.
+
+  function subst(value, callArgs) {
+    if (typeof value !== 'string') return value;
+    return value.replace(/\$\{(\w+)\}/g, (_, k) => {
+      const v = callArgs[k];
+      return v === undefined || v === null ? '' : String(v);
+    });
+  }
+
+  function stripBidi(s) {
+    return typeof s === 'string' ? s.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim() : s;
+  }
+
+  function readState(target) {
+    if (target === 'clipboard') {
+      try { return require('child_process').execFileSync('pbpaste', { encoding: 'utf-8' }); }
+      catch { return null; }
+    }
+    const els = desktop.scanApp(currentApp);
+    if (els.error) return null;
+    if (target === 'display' || target === 'last_number') {
+      const labels = els.filter(e => e.type === 'label' && e.label).map(e => stripBidi(e.label));
+      const numeric = labels.filter(l => /^-?[\d,]+(\.\d+)?$/.test(l));
+      return numeric[numeric.length - 1] ?? null;
+    }
+    // Otherwise, target is a field/element label — return its value.
+    const f = els.find(e => e.label === target);
+    return f ? (f.value ?? f.label) : null;
+  }
+
+  async function runManifestSteps(action, callArgs) {
+    const trace = [];
+    let lastRead = null;
+    for (let i = 0; i < action.steps.length; i++) {
+      const step = action.steps[i];
+      if (step.click != null) {
+        const label = resolveAlias(subst(step.click, callArgs), currentManifest);
+        const r = desktop.clickElement(currentApp, label);
+        trace.push({ step: i, click: label, ok: !!r.clicked });
+        if (!r.clicked) return { error: `step ${i} click "${label}" failed`, detail: r, trace };
+        await new Promise(res => setTimeout(res, 130));
+      } else if (step.type) {
+        const field = subst(step.type.field, callArgs);
+        const text = subst(step.type.text, callArgs);
+        const r = desktop.typeIntoField(currentApp, field, text);
+        trace.push({ step: i, type: field, ok: !!r.typed });
+        if (!r.typed) return { error: `step ${i} type into "${field}" failed`, detail: r, trace };
+        await new Promise(res => setTimeout(res, 150));
+      } else if (step.read !== undefined) {
+        lastRead = readState(subst(step.read, callArgs));
+        trace.push({ step: i, read: step.read, value: lastRead });
+      } else if (step.expression_chars !== undefined) {
+        const text = subst(step.expression_chars, callArgs);
+        for (const ch of text) {
+          if (ch === ' ') continue;
+          const label = resolveAlias(ch, currentManifest);
+          const r = desktop.clickElement(currentApp, label);
+          if (!r.clicked) {
+            trace.push({ step: i, char: ch, label, ok: false });
+            return { error: `expression char "${ch}" → "${label}" failed`, detail: r, trace };
+          }
+          await new Promise(res => setTimeout(res, 90));
+        }
+        trace.push({ step: i, expression_chars: text, ok: true });
+      } else if (step.wait !== undefined) {
+        await new Promise(res => setTimeout(res, Number(step.wait) || 0));
+        trace.push({ step: i, waited: step.wait });
+      } else {
+        trace.push({ step: i, skipped: 'unrecognized', step_obj: step });
+      }
+    }
+    return { ok: true, dispatched: 'manifest:steps', source: 'AGENTDOM.md', trace, result: lastRead };
   }
 
   // Per-tool timeout

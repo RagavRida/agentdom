@@ -197,20 +197,43 @@ function resolveAlias(label, manifest) {
   return manifest.aliases[label] || label;
 }
 
+/** Convert a manifest tool's `params:` map into JSON-schema properties +
+ *  required list, suitable for an MCP inputSchema. */
+function paramsToSchema(params) {
+  if (!params || typeof params !== 'object') return { properties: {}, required: [] };
+  const properties = {};
+  const required = [];
+  for (const [name, spec] of Object.entries(params)) {
+    if (!spec || typeof spec !== 'object') {
+      properties[name] = { type: 'string' };
+      continue;
+    }
+    properties[name] = {
+      type: spec.type || 'string',
+      description: spec.description || name,
+    };
+    if (spec.required === true || spec.required === 'true') required.push(name);
+  }
+  return { properties, required };
+}
+
 /** Augment a list of compiler-emitted MCP tools with manifest-declared tools.
  *  Manifest tools take priority on name collision. */
 function mergeManifestTools(autoTools, manifest, app) {
   if (!manifest || !manifest.tools.length) return autoTools;
-  const manifestTools = manifest.tools.map(t => ({
-    name: t.name,
-    description: t.description || `Manifest tool "${t.name}" for ${app}`,
-    inputSchema: { type: 'object', properties: t.params || {}, required: [] },
-    _internal: {
-      kind: 'manifest',
-      app,
-      manifest_action: t,
-    },
-  }));
+  const manifestTools = manifest.tools.map(t => {
+    const { properties, required } = paramsToSchema(t.params);
+    return {
+      name: t.name,
+      description: t.description || `Manifest tool "${t.name}" for ${app}`,
+      inputSchema: { type: 'object', properties, required },
+      _internal: {
+        kind: 'manifest',
+        app,
+        manifest_action: t,
+      },
+    };
+  });
   const seen = new Set(manifestTools.map(t => t.name));
   const merged = [...manifestTools];
   for (const t of autoTools) {

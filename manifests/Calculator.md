@@ -30,6 +30,18 @@ tools:
   - name: paste_value
     description: Paste the clipboard value into the display.
     click: Paste
+  - name: compute
+    description: Compute an arithmetic expression in Basic mode (e.g. "12*7+3"). Returns the displayed result.
+    params:
+      expression:
+        type: string
+        required: true
+        description: An expression using digits 0-9 and operators + - * / =
+    steps:
+      - click: All Clear
+      - expression_chars: ${expression}
+      - click: Equals
+      - read: display
 ---
 
 # AgentDOM Manifest — Calculator (macOS)

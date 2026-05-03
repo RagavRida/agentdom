@@ -194,6 +194,38 @@ test('api: $ref body schemas resolve', () => {
   assert.ok(form.fields.find(f => f.name === 'name' && f.required));
 });
 
+// ─── codegen targets ───────────────────────────────────────────────────────
+test('mcp target: emits MCP-shape tools (inputSchema, no function wrapper)', () => {
+  const scan = [
+    { type: 'text_input', label: 'Email', enabled: true, path: 'p1' },
+    { type: 'button', label: 'Sign In', enabled: true, path: 'p2' },
+  ];
+  const { tools } = compile(scan, { from: 'desktop', to: 'mcp', appName: 'X' });
+  assert.ok(tools.length > 0);
+  for (const t of tools) {
+    assert.ok(t.name, 'has name');
+    assert.ok(t.description, 'has description');
+    assert.ok(t.inputSchema, 'has inputSchema');
+    assert.strictEqual(t.inputSchema.type, 'object');
+    assert.ok(!t.function, 'no function wrapper');
+    assert.ok(!t.parameters, 'no top-level parameters key');
+  }
+});
+
+test('mcp target: same tool count as openai target', () => {
+  const spec = {
+    openapi: '3.0.0', info: { title: 'X' },
+    paths: { '/x': { get: { operationId: 'getX' }, post: { operationId: 'createX' } } },
+  };
+  const a = compile(spec, { from: 'api', to: 'openai' });
+  const b = compile(spec, { from: 'api', to: 'mcp' });
+  assert.strictEqual(a.tools.length, b.tools.length);
+  assert.deepStrictEqual(
+    a.tools.map(t => t.function.name).sort(),
+    b.tools.map(t => t.name).sort(),
+  );
+});
+
 // ─── invalid input ─────────────────────────────────────────────────────────
 test('compile: unknown source rejected', () => {
   assert.throws(() => compile([], { from: 'unicorn' }), /Unknown source/);

@@ -14,6 +14,7 @@ const { fromCLI } = require('./from-cli');
 const { fromOpenAPI } = require('./from-openapi');
 const { optimize } = require('./optimize');
 const { toOpenAI } = require('./to-openai');
+const { toMCP } = require('./to-mcp');
 
 const ADAPTERS = {
   desktop: fromDesktop,
@@ -24,6 +25,7 @@ const ADAPTERS = {
 
 const TARGETS = {
   openai: toOpenAI,
+  mcp: toMCP,
 };
 
 function compile(scanResult, { from, to = 'openai', ...adapterOpts } = {}) {
@@ -46,4 +48,5 @@ module.exports = {
   fromOpenAPI,
   optimize,
   toOpenAI,
+  toMCP,
 };

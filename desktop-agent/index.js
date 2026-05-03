@@ -167,6 +167,41 @@ const mac = {
     }
   },
 
+  /** Detect the UI framework. Returns 'electron' | 'java' | 'native' | 'unknown'.
+   *  Used to set agent expectations: Electron exposes only partial AX trees for web content.
+   *  ('native' covers both AppKit and Catalyst — distinguishing them needs Info.plist parsing.) */
+  detectFramework(appName) {
+    const name = validateAppName(appName);
+    let bundlePath = null;
+    // Try standard install locations first — fast, no osascript invocation.
+    const candidates = [
+      `/Applications/${name}.app`,
+      `/System/Applications/${name}.app`,
+      path.join(os.homedir(), 'Applications', `${name}.app`),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) { bundlePath = p; break; }
+    }
+    // Fallback: ask LaunchServices via osascript, suppressing stderr noise on miss.
+    if (!bundlePath) {
+      try {
+        bundlePath = osascript(`POSIX path of (path to application "${sanitizeAS(name)}")`, {
+          timeout: 3000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        if (!bundlePath || !fs.existsSync(bundlePath)) bundlePath = null;
+      } catch {
+        bundlePath = null;
+      }
+    }
+    if (!bundlePath) return 'unknown';
+
+    if (fs.existsSync(path.join(bundlePath, 'Contents/Frameworks/Electron Framework.framework'))) return 'electron';
+    if (fs.existsSync(path.join(bundlePath, 'Contents/PlugIns/jre.bundle')) ||
+        fs.existsSync(path.join(bundlePath, 'Contents/Java'))) return 'java';
+    return 'native';
+  },
+
   /** Enumerate displays. Returns [{id, x, y, width, height, primary}]. */
   getDisplays() {
     const py = `
@@ -288,7 +323,16 @@ print(json.dumps(out))
         } catch(e) {}
       }
       const windows = proc.windows();
-      for (let w = 0; w < windows.length; w++) { scanElement(windows[w], 0, 'window[' + w + ']'); }
+      for (let w = 0; w < windows.length; w++) {
+        scanElement(windows[w], 0, 'window[' + w + ']');
+        // Sheets / modals are siblings of uiElements — scan them explicitly.
+        try {
+          const sheets = windows[w].sheets();
+          for (let s = 0; s < sheets.length; s++) {
+            scanElement(sheets[s], 0, 'window[' + w + ']/sheet[' + s + ']');
+          }
+        } catch(e) {}
+      }
       try {
         const menuBar = proc.menuBars[0]; const menus = menuBar.menuBarItems();
         for (let m = 0; m < menus.length; m++) {
@@ -301,7 +345,23 @@ print(json.dumps(out))
     `;
     try {
       const elements = JSON.parse(jxa(script, { timeout: 15000 }));
-      return disambiguateLabels(elements);
+      const framework = this.detectFramework(name);
+      const result = disambiguateLabels(elements);
+      // Annotate with framework so the agent knows what to expect.
+      Object.defineProperty(result, 'framework', { value: framework, enumerable: false });
+      if (framework === 'electron') {
+        result.unshift({
+          type: '_meta',
+          label: '__electron_warning__',
+          description: 'This is an Electron app. Web content is rendered in Chromium and may expose only partial accessibility data — labels can be missing and roles may not match standard AX roles. Prefer clicking by visible text and re-scanning after navigation.',
+          framework: 'electron',
+          enabled: true,
+          focused: false,
+          actions: [],
+          path: '__meta__',
+        });
+      }
+      return result;
     } catch (e) {
       if (!this.isRunning(name)) return this._notRunningError(name);
       const perm = this.checkPermissions();
@@ -953,6 +1013,9 @@ module.exports = {
 
   /** Enumerate displays. Returns [{id, x, y, width, height, primary}]. */
   getDisplays: () => desktop?.getDisplays?.() || [],
+
+  /** Detect UI framework: 'electron' | 'java' | 'native' | 'unknown'. macOS only. */
+  detectFramework: (app) => desktop?.detectFramework?.(app) || 'unknown',
 
   listApps: () => desktop?.listApps() || [],
   activate: (app) => desktop?.activate(app),

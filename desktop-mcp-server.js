@@ -13,6 +13,7 @@ const { ListToolsRequestSchema, CallToolRequestSchema, ListResourcesRequestSchem
 const { platform } = require('./agent-platform');
 const desktop = require('./desktop-agent');
 const { compile } = require('./compiler');
+const { loadManifest, resolveAlias, mergeManifestTools } = require('./compiler/from-manifest');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -21,6 +22,7 @@ const server = new Server(
 
 // ── Per-session compiled tools (refreshed by scan_app) ──
 let currentApp = null;
+let currentManifest = null;   // loaded AGENTDOM.md manifest, if any
 let dynamicTools = [];        // public-shape tools for tools/list
 const dynamicMap = new Map(); // name → full tool object (incl. _internal) for dispatch
 
@@ -41,17 +43,23 @@ async function refreshScan(appName) {
 
   const { ir, tools } = compile(scan, { from: 'desktop', to: 'mcp', appName });
   currentApp = appName;
-  dynamicTools = stripInternal(tools);
+  // Load app's AGENTDOM.md manifest (if shipped). Manifest tools are merged
+  // ahead of auto-discovered tools and aliases are honored at dispatch time.
+  currentManifest = loadManifest(appName);
+  const merged = mergeManifestTools(tools, currentManifest, appName);
+  dynamicTools = stripInternal(merged);
   dynamicMap.clear();
-  for (const t of tools) dynamicMap.set(t.name, t);
+  for (const t of merged) dynamicMap.set(t.name, t);
 
-  // Notify the client to re-fetch tools/list.
   try { server.notification({ method: 'notifications/tools/list_changed' }); } catch (_) {}
 
   return {
     app: appName,
     framework: ir.meta.framework,
     counts: { forms: ir.forms.length, actions: ir.actions.length, navigation: ir.navigation.length },
+    manifest: currentManifest
+      ? { source: currentManifest.sourcePath, tools: currentManifest.tools.length, aliases: Object.keys(currentManifest.aliases).length, notes: currentManifest.notes }
+      : null,
     tools: dynamicTools,
   };
 }
@@ -165,6 +173,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { error: 'No active app', hint: 'Call scan_app({ app }) first to register tools.' };
     }
     const internal = tool._internal || {};
+
+    // Manifest-declared tools — owner-supplied semantic intents.
+    if (internal.kind === 'manifest') {
+      const action = internal.manifest_action || {};
+      if (action.click) {
+        const label = resolveAlias(action.click, currentManifest);
+        const r = desktop.clickElement(currentApp, label);
+        if (r && r.error) return r;
+        return { dispatched: 'manifest:click', label, source: 'AGENTDOM.md', result: r };
+      }
+      return { error: `Manifest tool "${tool.name}" has no executable directive (expected a click: field)` };
+    }
 
     if (internal.kind === 'action') {
       // Menu items have selectors like "menu/Calculator" — route to clickMenu

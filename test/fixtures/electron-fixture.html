@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AgentDOM Electron Fixture</title>
+</head>
+<body>
+  <h1 id="hello">AgentDOM Electron Fixture</h1>
+  <p id="intro">Hermetic test surface for the CDP bridge.</p>
+
+  <form id="search" action="javascript:void(0)" data-intent="search">
+    <label for="q">Query</label>
+    <input id="q" name="q" type="text" placeholder="Type a query">
+    <button type="submit" id="search-submit">Search</button>
+  </form>
+
+  <button id="counter-btn" data-count="0" onclick="
+    const n = parseInt(this.dataset.count, 10) + 1;
+    this.dataset.count = n;
+    document.getElementById('counter-out').textContent = String(n);
+  ">Increment</button>
+  <span id="counter-out">0</span>
+
+  <a id="more-link" href="#detail">More information</a>
+
+  <section id="detail" hidden>
+    <h2>Detail</h2>
+    <p id="detail-text">arrived at detail section</p>
+  </section>
+
+  <script>
+    // Reveal #detail when its anchor is followed so a post-click rescan
+    // sees a different DOM than the initial scan.
+    function revealDetail() {
+      const d = document.getElementById('detail');
+      if (d) d.hidden = false;
+    }
+    window.addEventListener('hashchange', revealDetail);
+    if (location.hash === '#detail') revealDetail();
+  </script>
+</body>
+</html>

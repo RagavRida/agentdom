@@ -489,8 +489,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const els = desktop.scanApp(currentApp);
     if (els.error) return null;
     if (target === 'display' || target === 'last_number') {
-      const labels = els.filter(e => e.type === 'label' && e.label).map(e => stripBidi(e.label));
-      const numeric = labels.filter(l => /^-?[\d,]+(\.\d+)?$/.test(l));
+      // macOS Calculator on Tahoe puts the displayed value in AXValue with a
+      // generic "text (N)" label after disambiguation, not in AXTitle. Earlier
+      // versions exposed the digits as the label directly. Check both.
+      const candidates = els
+        .filter(e => e.type === 'label')
+        .flatMap(e => [e.value, e.label])
+        .filter(v => typeof v === 'string' && v.length)
+        .map(stripBidi);
+      const numeric = candidates.filter(l => /^-?[\d,]+(\.\d+)?$/.test(l));
       return numeric[numeric.length - 1] ?? null;
     }
     // Otherwise, target is a field/element label — return its value.

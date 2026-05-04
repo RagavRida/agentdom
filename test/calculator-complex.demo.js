@@ -41,14 +41,17 @@ function readDisplay() {
   // Strip Unicode bidi marks (LTR ‎, RTL ‏, embeddings ‪-‮)
   // and any other invisible formatting Calculator sprinkles into its display.
   const stripBidi = s => s.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
-  const labels = els
-    .filter(e => e.type === 'label' && e.label)
-    .map(e => stripBidi(e.label))
+  // macOS Tahoe puts the displayed value in AXValue with a generic
+  // "text (N)" label after disambiguation; older versions used AXTitle.
+  // Pull both, then bidi-strip, then keep the numeric ones.
+  const candidates = els
+    .filter(e => e.type === 'label')
+    .flatMap(e => [e.value, e.label])
+    .filter(v => typeof v === 'string' && v.length)
+    .map(stripBidi)
     .filter(Boolean);
-  // The result is typically the last purely-numeric label (Calculator shows
-  // "<expression>" then "<result>" as separate AXStaticText elements).
-  const numeric = labels.filter(l => /^-?[\d,]+(\.\d+)?$/.test(l));
-  return { allLabels: labels, numericLabels: numeric, value: numeric[numeric.length - 1] ?? null };
+  const numeric = candidates.filter(l => /^-?[\d,]+(\.\d+)?$/.test(l));
+  return { allLabels: candidates, numericLabels: numeric, value: numeric[numeric.length - 1] ?? null };
 }
 
 function buttonLabels() {

@@ -8,12 +8,14 @@ notes:
 tools:
   - name: status
     description: Show the working tree status in machine-readable form.
+    intent: vcs.status
     steps:
       - run: git status --porcelain
       - read: stdout
 
   - name: log_recent
     description: Show the last N commits as one-liners.
+    intent: vcs.log
     params:
       limit:
         type: number
@@ -25,18 +27,21 @@ tools:
 
   - name: current_branch
     description: Print the current branch name.
+    intent: vcs.current_branch
     steps:
       - run: git rev-parse --abbrev-ref HEAD
       - read: stdout
 
   - name: diff_stat
     description: Summarize unstaged + staged changes (file count, insertions, deletions).
+    intent: vcs.diff
     steps:
       - run: git diff --stat HEAD
       - read: stdout
 
   - name: blame_line
     description: Show who last touched a specific line of a file.
+    intent: vcs.blame
     params:
       file:    { type: string, required: true, description: Path relative to repo root. }
       line:    { type: number, required: true, description: 1-indexed line number. }

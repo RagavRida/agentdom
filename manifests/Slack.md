@@ -22,10 +22,12 @@ tools:
 
   - name: jump_to_quick_switcher
     description: Open Slack's quick-switcher (jump to channel/DM).
+    intent: messaging.switch_conversation
     click: Jump to…
 
   - name: search_workspace
     description: Open the workspace search.
+    intent: messaging.search
     click: Search…
 
   - name: set_status
@@ -34,6 +36,7 @@ tools:
 
   - name: send_message
     description: Send a message in the currently-active conversation. Requires CDP attach (relaunch Slack with --remote-debugging-port=N).
+    intent: messaging.send
     params:
       - name: text
         type: string
@@ -47,6 +50,7 @@ tools:
 
   - name: read_latest
     description: Read the most recent visible message in the active conversation. Requires CDP attach.
+    intent: messaging.read
     steps:
       - dom_read: '[data-qa="virtual-list-item"]:last-child'
 ---

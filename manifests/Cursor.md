@@ -9,26 +9,31 @@ notes:
 tools:
   - name: open_file
     description: Open the file picker.
+    intent: editor.open_file
     click: Open…
 
   - name: open_folder
     description: Open the folder picker.
+    intent: editor.open_folder
     click: Open Folder…
 
   - name: command_palette
     description: Open Cursor's command palette via CDP keyboard.
+    intent: editor.open_command_palette
     steps:
       - press_keys: Meta+Shift+KeyP
       - wait: 200
 
   - name: ai_chat
     description: Open Cursor's AI chat sidebar (Cmd+L). Requires CDP attach.
+    intent: editor.ai_chat
     steps:
       - press_keys: Meta+KeyL
       - wait: 250
 
   - name: ai_compose
     description: Open Cursor's inline AI composer (Cmd+K) and send a prompt. Requires CDP attach.
+    intent: editor.ai_compose
     params:
       - name: prompt
         type: string
@@ -44,6 +49,7 @@ tools:
 
   - name: run_command
     description: Run any workbench command by name. Requires CDP attach.
+    intent: editor.run_command
     params:
       - name: command
         type: string
@@ -59,6 +65,7 @@ tools:
 
   - name: editor_text
     description: Read the active editor's visible text. Requires CDP attach.
+    intent: editor.read_visible
     steps:
       - dom_read: ".monaco-editor .view-lines"
 ---

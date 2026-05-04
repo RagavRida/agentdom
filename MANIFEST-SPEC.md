@@ -75,6 +75,27 @@ tools:
 `name` is what the agent calls (`clear()`); `description` is its docstring;
 `click` is the AX label the dispatcher invokes — alias-resolved.
 
+### Intent metadata
+
+Each tool may declare `intent: <dotted.id>` so cross-app discovery groups
+capabilities. The `discover_surfaces` MCP meta-tool inverts this index:
+`messaging.send` → all manifests that ship a tool with that intent.
+
+```yaml
+tools:
+  - name: send_message
+    intent: messaging.send
+    description: Send a message in the current conversation.
+    params: [...]
+    steps: [...]
+```
+
+Convention: dotted namespace, `<domain>.<verb>`. Domains in the registry
+today: `editor.*` (editor.run_command, editor.read_visible, …),
+`messaging.*` (messaging.send, messaging.read, …), `vcs.*` (vcs.status,
+vcs.log, …). Add new domains freely — the agent reads the index and
+routes by capability rather than app name.
+
 ### Multi-step tools
 
 When a single click isn't enough, replace `click:` with `steps:` (a list)

@@ -10,24 +10,29 @@ notes:
 tools:
   - name: open_file
     description: Open the standard file picker. The next agent step picks the file.
+    intent: editor.open_file
     click: Open…
 
   - name: open_folder
     description: Open the folder picker for "Open Folder...".
+    intent: editor.open_folder
     click: Open Folder…
 
   - name: new_window
     description: Open a fresh VS Code window.
+    intent: editor.new_window
     click: New Window
 
   - name: command_palette
     description: Open the command palette (Cmd+Shift+P) via CDP keyboard. Falls back to the menubar item when CDP isn't attached.
+    intent: editor.open_command_palette
     steps:
       - press_keys: Meta+Shift+KeyP
       - wait: 200
 
   - name: run_command
     description: Run a workbench command by name (Cmd+Shift+P → type → Enter). Requires CDP attach.
+    intent: editor.run_command
     params:
       - name: command
         type: string
@@ -43,14 +48,17 @@ tools:
 
   - name: toggle_terminal
     description: Toggle the integrated terminal panel.
+    intent: editor.toggle_terminal
     click: Terminal
 
   - name: source_control
     description: Reveal the Source Control view in the sidebar.
+    intent: vcs.open
     click: SCM
 
   - name: editor_text
     description: Read the visible text of the active editor. Requires CDP attach.
+    intent: editor.read_visible
     steps:
       - dom_read: ".monaco-editor .view-lines"
 ---

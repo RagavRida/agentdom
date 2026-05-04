@@ -179,6 +179,17 @@ function loadManifest(appName) {
   const notes = Array.isArray(data.notes) ? data.notes : [];
   const tools = Array.isArray(data.tools) ? data.tools.filter(t => t && t.name) : [];
 
+  // Intent index: every tool may declare `intent: <dotted.id>` so cross-app
+  // discovery can group capabilities (e.g. messaging.send → Slack + Discord).
+  // Map: intent → list of tool names that provide it inside this manifest.
+  const intents = {};
+  for (const t of tools) {
+    if (typeof t.intent === 'string' && t.intent.trim()) {
+      const id = t.intent.trim();
+      (intents[id] = intents[id] || []).push(t.name);
+    }
+  }
+
   return {
     app: data.app || appName,
     platform: data.platform,
@@ -187,8 +198,43 @@ function loadManifest(appName) {
     aliases,
     notes,
     tools,
+    intents,
     sourcePath: file,
   };
+}
+
+/** Enumerate every manifest in the registry (user override + bundled).
+ *  Returns a lightweight summary per file — used by discover_surfaces. */
+function listManifests() {
+  const seen = new Set();
+  const out = [];
+  for (const dir of MANIFEST_DIRS) {
+    if (!dir || !fs.existsSync(dir)) continue;
+    for (const ent of fs.readdirSync(dir)) {
+      if (!ent.endsWith('.md') || ent === 'README.md') continue;
+      const file = path.join(dir, ent);
+      const stem = ent.replace(/\.md$/, '');
+      const key = stem.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        const m = loadManifest(stem);
+        if (!m) continue;
+        out.push({
+          app: m.app,
+          stem,
+          platform: m.platform,
+          framework: m.framework,
+          version: m.version,
+          toolCount: m.tools.length,
+          intents: Object.keys(m.intents || {}),
+          sourcePath: file,
+          override: dir.includes(path.join('.agentdom', 'manifests')),
+        });
+      } catch (_) { /* skip malformed */ }
+    }
+  }
+  return out;
 }
 
 /** Resolve a label through manifest aliases. Returns the canonical label. */
@@ -244,6 +290,7 @@ function mergeManifestTools(autoTools, manifest, app) {
 
 module.exports = {
   loadManifest,
+  listManifests,
   resolveAlias,
   mergeManifestTools,
   findManifestFile,

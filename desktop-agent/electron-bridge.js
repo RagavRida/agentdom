@@ -22,6 +22,13 @@ const AGENTDOM_SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'agentdom.js'
 const DEFAULT_PROBE_PORTS = [9222, 9229, 9223, 9224, 9225];
 const PROBE_TIMEOUT_MS = 600;
 
+// Lazy require to avoid a circular import: launch.js requires this file via
+// nothing (it doesn't), but keeping the lazy load means a fresh install
+// without the commands/ dir wouldn't crash on import.
+function loadLaunchModule() {
+  try { return require('../commands/launch'); } catch { return null; }
+}
+
 let _puppeteer = null;
 function loadPuppeteer() {
   if (_puppeteer) return _puppeteer;
@@ -79,10 +86,27 @@ function discoverPortsFromProcessList(appName) {
 }
 
 /** Find a usable CDP endpoint for an app.
- *  Order: process-list match → caller-supplied probe ports → default ports.
+ *  Order: ~/.agentdom/sessions.json (set by `agentdom launch`) → process-list
+ *  match → caller-supplied probe ports → default ports.
  *  Returns { port, hostname, browser, version, source } or null. */
 async function detectCDP(appName, opts = {}) {
   const tried = new Set();
+
+  // 1. Sessions file written by `agentdom launch` — the trustworthy fast path.
+  if (opts.useSessions !== false) {
+    const launchMod = loadLaunchModule();
+    if (launchMod) {
+      const session = launchMod.findSession(appName);
+      if (session && session.port) {
+        tried.add(session.port);
+        const r = await probePort(session.port, { hostname: session.hostname, ...opts });
+        if (r) return { ...r, source: 'sessions-file', sessionPid: session.pid };
+      }
+    }
+  }
+
+  // 2. Process-list scan — catches users who launched Chrome/Electron with
+  //    --remote-debugging-port without going through `agentdom launch`.
   const fromProcs = discoverPortsFromProcessList(appName);
   for (const { port } of fromProcs) {
     if (tried.has(port)) continue;
@@ -90,6 +114,8 @@ async function detectCDP(appName, opts = {}) {
     const r = await probePort(port, opts);
     if (r) return { ...r, source: 'process-list' };
   }
+
+  // 3. Caller hints + well-known defaults.
   const candidates = [...(opts.ports || []), ...DEFAULT_PROBE_PORTS];
   for (const port of candidates) {
     if (tried.has(port)) continue;

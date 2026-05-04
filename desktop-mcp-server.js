@@ -15,6 +15,7 @@ const desktop = require('./desktop-agent');
 const { compile } = require('./compiler');
 const { loadManifest, resolveAlias, mergeManifestTools } = require('./compiler/from-manifest');
 const electronBridge = require('./desktop-agent/electron-bridge');
+const launchCmd = require('./commands/launch');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -161,13 +162,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'attach_electron',
-      description: 'Attach to a running Electron app via Chrome DevTools Protocol and register DOM tools. Auto-detects --remote-debugging-port from the process list, or pass { port } explicitly. Use when scan_app missed the CDP endpoint.',
+      description: 'Attach to a running Electron app via Chrome DevTools Protocol and register DOM tools. Auto-detects --remote-debugging-port from ~/.agentdom/sessions.json (written by launch_electron) or the process list. Pass { port } to override.',
       inputSchema: {
         type: 'object',
         properties: {
           app: { type: 'string', description: 'App name to attach to.' },
           port: { type: 'number', description: 'Explicit CDP port (e.g. 9222).' },
           urlIncludes: { type: 'string', description: 'Renderer URL substring to target.' },
+        },
+        required: ['app'],
+      },
+    },
+    {
+      name: 'launch_electron',
+      description: 'Relaunch an Electron app with --remote-debugging-port exposed and attach in one step. ZERO-SETUP path: closes the gap where users would otherwise have to relaunch the app from a terminal themselves. Refuses to relaunch a running app unless { force: true } (force closes existing windows; unsaved state may be lost).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'App bundle name (e.g. "Visual Studio Code", "Slack", "Cursor").' },
+          force: { type: 'boolean', description: 'If true and the app is running without the flag, quit it first. Default false.' },
+          port: { type: 'number', description: 'Pin a specific CDP port (default: random free port).' },
+          urlIncludes: { type: 'string', description: 'After attach, target the renderer whose URL contains this substring.' },
         },
         required: ['app'],
       },
@@ -239,6 +254,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
         }
         return ok(result);
+      }
+      if (name === 'launch_electron') {
+        if (!args?.app) {
+          return { content: [{ type: 'text', text: 'launch_electron requires { app: <name> }' }], isError: true };
+        }
+        // Step 1: launch the app with the CDP flag (or reuse if already running with one).
+        const launched = await launchCmd.launchApp(args.app, {
+          force: !!args.force,
+          port: args.port || null,
+          quiet: true,
+        });
+        if (launched.error) {
+          return { content: [{ type: 'text', text: JSON.stringify(launched, null, 2) }], isError: true };
+        }
+        // Step 2: attach + scan. detectCDP will pick up sessions.json on its next call.
+        const result = await refreshScan(args.app, {
+          port: launched.port,
+          urlIncludes: args.urlIncludes,
+          forceElectron: true,
+        });
+        if (result.error) {
+          return { content: [{ type: 'text', text: JSON.stringify({ launched, attachError: result }, null, 2) }], isError: true };
+        }
+        return ok({ launched: { app: launched.app, port: launched.port, pid: launched.pid, reused: !!launched.reused }, ...result });
       }
       if (name === 'discover') {
         return ok(platform.discover(args?.category));

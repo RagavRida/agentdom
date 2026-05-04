@@ -67,20 +67,24 @@ VS Code uses (via the equivalent `--remote-debugging-port` flag).
 toggle_terminal, source_control) drive the macOS menubar via AX. Works on
 any VS Code install with no flags.
 
-**Path B — CDP (full workbench).** Launch VS Code as
-`code --remote-debugging-port=9222` (any free port works). AgentDOM detects
-the port from the process list and registers DOM tools on top of the
-menubar tools. The workbench, editor, command palette, and Source Control
-view are now reachable.
+**Path B — CDP (full workbench).** Two ways to expose CDP:
 
 ```bash
-# One-time launch with CDP exposed
-code --remote-debugging-port=9222 ~/your-project
+# Zero-setup: AgentDOM picks a free port and persists a session.
+agentdom launch "Visual Studio Code"
 
-# Then from an agent
-scan_app({ app: "Visual Studio Code" })
-# returns { electron: { attached: true, port: 9222, ... }, tools: [ ... ] }
+# Manual: launch yourself, then AgentDOM auto-detects from the process list.
+code --remote-debugging-port=9222 ~/your-project
 ```
+
+Either way, the next `scan_app({ app: "Visual Studio Code" })` returns
+`{ electron: { attached: true, port: ..., source: ... }, tools: [...] }`
+and the workbench, editor, command palette, and Source Control view are
+now reachable.
+
+From an MCP client, `launch_electron({ app: "Visual Studio Code" })` does
+the launch + attach in one call — useful when the agent should be able to
+recover from "app not running" autonomously.
 
 ## Step grammar referenced here
 

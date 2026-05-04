@@ -36,6 +36,7 @@
     "test": "node --test test/*.test.js",
     "test:compiler": "node compiler/__test__.js",
     "test:mcp": "node test/mcp-servers.test.js",
+    "test:launch": "node test/launch-flow.demo.js",
     "demo:desktop": "node test/desktop-workflow.demo.js",
     "demo:calculator": "node test/calculator-workflow.demo.js",
     "demo:calculator-complex": "node test/calculator-complex.demo.js",

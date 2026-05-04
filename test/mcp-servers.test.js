@@ -232,6 +232,24 @@ async function testDesktop() {
       );
       assert.ok(data.hint, 'error must carry a hint');
     });
+
+    await test('desktop: attach_electron meta-tool is exposed', async () => {
+      const r = await client.listTools();
+      const t = r.tools.find(x => x.name === 'attach_electron');
+      assert.ok(t, 'attach_electron should be listed alongside scan_app');
+      assert.ok(t.inputSchema?.properties?.app, 'attach_electron must accept { app }');
+      assert.ok(t.inputSchema?.properties?.port, 'attach_electron must accept { port }');
+    });
+
+    await test('desktop: attach_electron on missing app returns clean error', async () => {
+      const r = await client.callTool({
+        name: 'attach_electron',
+        arguments: { app: 'NotARealAppZZZ' },
+      });
+      assert.ok(r.isError, 'expected isError for non-running app');
+      const data = jsonText(r);
+      assert.ok(data.error, `expected error string, got: ${JSON.stringify(data)}`);
+    });
   } finally {
     await close();
   }

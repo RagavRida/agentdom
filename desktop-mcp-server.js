@@ -14,6 +14,7 @@ const { platform } = require('./agent-platform');
 const desktop = require('./desktop-agent');
 const { compile } = require('./compiler');
 const { loadManifest, resolveAlias, mergeManifestTools } = require('./compiler/from-manifest');
+const electronBridge = require('./desktop-agent/electron-bridge');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -26,11 +27,39 @@ let currentManifest = null;   // loaded AGENTDOM.md manifest, if any
 let dynamicTools = [];        // public-shape tools for tools/list
 const dynamicMap = new Map(); // name → full tool object (incl. _internal) for dispatch
 
+// ── Per-session Electron CDP attachment ──
+// When an Electron app exposes --remote-debugging-port, scan_app attaches via
+// puppeteer-core and registers DOM tools alongside the AX menubar tools.
+let electronSession = null;
+let electronInfo = null;      // { port, browserURL, source, browser, version }
+
+async function disposeElectronSession() {
+  if (electronSession) {
+    try { await electronSession.dispose(); } catch (_) {}
+  }
+  electronSession = null;
+  electronInfo = null;
+}
+
+/** Compile a DOM scan into MCP tools and prefix names with `dom_` so they
+ *  don't collide with AX-derived tools (which often share labels for menu
+ *  items vs. on-screen buttons). _internal.platform stays 'web' so the
+ *  dispatcher can recognise the routing target. */
+function compileElectronTools(domScan, appName) {
+  if (!domScan) return { tools: [], ir: null };
+  const compiled = compile(domScan, { from: 'web', to: 'mcp', appName });
+  const tools = compiled.tools.map(t => {
+    if (t.name.startsWith('dom_') || t.name === 'navigate') return t;
+    return { ...t, name: `dom_${t.name}` };
+  });
+  return { tools, ir: compiled.ir };
+}
+
 function stripInternal(tools) {
   return tools.map(({ _internal, ...rest }) => rest);
 }
 
-async function refreshScan(appName) {
+async function refreshScan(appName, opts = {}) {
   const perm = desktop.checkPermissions();
   if (!perm.ok) {
     return { error: perm.error || 'Permission required', hint: perm.hint };
@@ -46,7 +75,29 @@ async function refreshScan(appName) {
   // Load app's AGENTDOM.md manifest (if shipped). Manifest tools are merged
   // ahead of auto-discovered tools and aliases are honored at dispatch time.
   currentManifest = loadManifest(appName);
-  const merged = mergeManifestTools(tools, currentManifest, appName);
+  let merged = mergeManifestTools(tools, currentManifest, appName);
+
+  // For Electron apps, also try to attach via CDP and merge DOM tools.
+  // Disabled with { electron: false } — tests want the AX-only path.
+  let electronReport = null;
+  if (opts.electron !== false && (ir.meta.framework === 'electron' || opts.forceElectron)) {
+    electronReport = await tryAttachElectron(appName, opts);
+    if (electronSession) {
+      try {
+        const domScan = await electronSession.scanWindow({ urlIncludes: opts.urlIncludes });
+        const { tools: domTools, ir: domIR } = compileElectronTools(domScan, appName);
+        merged = merged.concat(domTools);
+        electronReport = {
+          ...electronReport,
+          targets: await electronSession.listTargets(),
+          dom: { forms: domIR.forms.length, actions: domIR.actions.length, navigation: domIR.navigation.length, tools: domTools.length },
+        };
+      } catch (e) {
+        electronReport = { ...electronReport, scanError: e.message };
+      }
+    }
+  }
+
   dynamicTools = stripInternal(merged);
   dynamicMap.clear();
   for (const t of merged) dynamicMap.set(t.name, t);
@@ -60,8 +111,36 @@ async function refreshScan(appName) {
     manifest: currentManifest
       ? { source: currentManifest.sourcePath, tools: currentManifest.tools.length, aliases: Object.keys(currentManifest.aliases).length, notes: currentManifest.notes }
       : null,
+    electron: electronReport,
     tools: dynamicTools,
   };
+}
+
+/** Probe / attach a CDP endpoint for an Electron app. Stores the session in
+ *  module-scope state. Returns a small status object for the scan response. */
+async function tryAttachElectron(appName, opts = {}) {
+  await disposeElectronSession();
+  let info = null;
+  if (opts.port) {
+    info = await electronBridge.probePort(opts.port);
+    if (!info) return { attached: false, reason: `No CDP on port ${opts.port}.`, hint: 'Launch the app with --remote-debugging-port=<n>.' };
+  } else {
+    info = await electronBridge.detectCDP(appName);
+    if (!info) return {
+      attached: false,
+      reason: 'No CDP endpoint detected.',
+      hint: `Relaunch ${appName} with --remote-debugging-port=9222 (or pass { port } to attach_electron).`,
+    };
+  }
+  try {
+    electronSession = await electronBridge.attach({ port: info.port, hostname: info.hostname, app: appName });
+    electronInfo = { ...info };
+    return { attached: true, port: info.port, browser: info.Browser || info.browser, source: info.source };
+  } catch (e) {
+    electronSession = null;
+    electronInfo = null;
+    return { attached: false, reason: e.message, hint: 'puppeteer-core required; check it is installed.' };
+  }
 }
 
 // ── Tools: meta + auto-compiled per scan ──
@@ -69,8 +148,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'scan_app',
-      description: 'Scan a running desktop app and AUTO-GENERATE typed tools (authenticate, click_*, navigate, …). Call this whenever the active app changes or the UI navigates. After it returns, call tools/list again to get the new tool list — or just call the tool by name; the server emits notifications/tools/list_changed.',
-      inputSchema: { type: 'object', properties: { app: { type: 'string', description: 'App name (e.g. "Slack", "Finder")' } }, required: ['app'] },
+      description: 'Scan a running desktop app and AUTO-GENERATE typed tools (authenticate, click_*, navigate, …). Call this whenever the active app changes or the UI navigates. For Electron apps launched with --remote-debugging-port, DOM tools (dom_click_*, dom_*) are also registered. After it returns, call tools/list again to get the new tool list — or just call the tool by name; the server emits notifications/tools/list_changed.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'App name (e.g. "Slack", "Visual Studio Code")' },
+          port: { type: 'number', description: 'Optional: explicit CDP port to attach for an Electron app.' },
+          urlIncludes: { type: 'string', description: 'Optional: choose the renderer whose URL contains this substring.' },
+        },
+        required: ['app'],
+      },
+    },
+    {
+      name: 'attach_electron',
+      description: 'Attach to a running Electron app via Chrome DevTools Protocol and register DOM tools. Auto-detects --remote-debugging-port from the process list, or pass { port } explicitly. Use when scan_app missed the CDP endpoint.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'App name to attach to.' },
+          port: { type: 'number', description: 'Explicit CDP port (e.g. 9222).' },
+          urlIncludes: { type: 'string', description: 'Renderer URL substring to target.' },
+        },
+        required: ['app'],
+      },
     },
     {
       name: 'discover',
@@ -122,7 +222,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!args?.app) {
           return { content: [{ type: 'text', text: 'scan_app requires { app: <name> }' }], isError: true };
         }
-        const result = await refreshScan(args.app);
+        const result = await refreshScan(args.app, { port: args.port, urlIncludes: args.urlIncludes });
+        if (result.error) {
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+        }
+        return ok(result);
+      }
+      if (name === 'attach_electron') {
+        if (!args?.app) {
+          return { content: [{ type: 'text', text: 'attach_electron requires { app: <name> }' }], isError: true };
+        }
+        // forceElectron bypasses the framework=='electron' check so non-bundled
+        // Electron apps (e.g. dev builds) still go through the CDP path.
+        const result = await refreshScan(args.app, { port: args.port, urlIncludes: args.urlIncludes, forceElectron: true });
         if (result.error) {
           return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
         }
@@ -190,6 +302,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (internal.kind === 'action') {
+      // Electron DOM tools — selector is a CSS path, route through the CDP session.
+      if (internal.platform === 'web') {
+        if (!electronSession) {
+          return { error: 'No Electron session attached', hint: 'Call attach_electron({ app, port? }) first.' };
+        }
+        const r = internal.selector
+          ? await electronSession.clickBySelector(internal.selector)
+          : await electronSession.clickByText(internal.label);
+        if (!r.clicked) return { error: `DOM click failed for "${internal.label}"`, detail: r };
+        return { dispatched: 'electron:clickBySelector', selector: internal.selector, label: internal.label, result: r };
+      }
       // Menu items have selectors like "menu/Calculator" — route to clickMenu
       // for deterministic dispatch. clickMenu opens the parent menu, then
       // clicks the item — works regardless of menu visibility.
@@ -208,6 +331,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (internal.kind === 'form') {
+      // Electron DOM forms — fill via CDP, submit by clicking the form's submit selector.
+      if (internal.platform === 'web') {
+        if (!electronSession) {
+          return { error: 'No Electron session attached', hint: 'Call attach_electron({ app, port? }) first.' };
+        }
+        const fieldByName = new Map((internal.fields || []).map(f => [f.name, f]));
+        const typed = [];
+        for (const [argName, value] of Object.entries(callArgs)) {
+          const field = fieldByName.get(argName);
+          if (!field) continue;
+          const r = await electronSession.typeIntoField({
+            selector: field.selector,
+            label: field.label || field.name,
+            text: String(value ?? ''),
+          });
+          typed.push({ field: field.name, ok: !!r.typed, error: r.error });
+          if (!r.typed) return { error: `dom type "${field.name}" failed`, detail: r };
+        }
+        let submitResult = null;
+        if (internal.submitAction?.selector) {
+          submitResult = await electronSession.clickBySelector(internal.submitAction.selector);
+        } else if (internal.submitAction?.label) {
+          submitResult = await electronSession.clickByText(internal.submitAction.label);
+        }
+        return { dispatched: 'electron:form', typed, submit: submitResult };
+      }
       const fieldByName = new Map((internal.fields || []).map(f => [f.name, f]));
       const typed = [];
       for (const [argName, value] of Object.entries(callArgs)) {
@@ -244,6 +393,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   //   - read: <"display"|"clipboard"|field-label>
   //   - expression_chars: <text-or-${param}>   (split chars, alias-resolve each, click)
   //   - wait: <ms>
+  // Step grammar v2 (Electron, requires attach_electron first):
+  //   - dom_click: <css-selector>           (click via CDP)
+  //   - dom_click_text: <visible-text>      (find by inner text + click)
+  //   - dom_type: { selector|label, text }  (focus + dispatch input event)
+  //   - dom_read: <css-selector>            (innerText of first match)
+  //   - press_keys: "Meta+Shift+P"          (CDP keyboard chord)
+  //   - eval: <js-expression>               (raw JS in renderer; sparingly)
   // ${name} substitution: replaced with String(callArgs[name] ?? '').
   // Returns { ok|error, steps: [...trace], result: <last read value> }.
 
@@ -313,6 +469,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       } else if (step.wait !== undefined) {
         await new Promise(res => setTimeout(res, Number(step.wait) || 0));
         trace.push({ step: i, waited: step.wait });
+      } else if (step.dom_click != null) {
+        if (!electronSession) return { error: `step ${i} dom_click needs attach_electron first`, trace };
+        const selector = subst(step.dom_click, callArgs);
+        const r = await electronSession.clickBySelector(selector);
+        trace.push({ step: i, dom_click: selector, ok: !!r.clicked });
+        if (!r.clicked) return { error: `step ${i} dom_click "${selector}" failed`, detail: r, trace };
+        await new Promise(res => setTimeout(res, 130));
+      } else if (step.dom_click_text != null) {
+        if (!electronSession) return { error: `step ${i} dom_click_text needs attach_electron first`, trace };
+        const text = subst(step.dom_click_text, callArgs);
+        const r = await electronSession.clickByText(text);
+        trace.push({ step: i, dom_click_text: text, ok: !!r.clicked });
+        if (!r.clicked) return { error: `step ${i} dom_click_text "${text}" failed`, detail: r, trace };
+        await new Promise(res => setTimeout(res, 130));
+      } else if (step.dom_type) {
+        if (!electronSession) return { error: `step ${i} dom_type needs attach_electron first`, trace };
+        const selector = subst(step.dom_type.selector, callArgs);
+        const label = subst(step.dom_type.label, callArgs);
+        const text = subst(step.dom_type.text, callArgs);
+        const r = await electronSession.typeIntoField({ selector, label, text });
+        trace.push({ step: i, dom_type: selector || label, ok: !!r.typed });
+        if (!r.typed) return { error: `step ${i} dom_type into "${selector || label}" failed`, detail: r, trace };
+        await new Promise(res => setTimeout(res, 150));
+      } else if (step.dom_read != null) {
+        if (!electronSession) return { error: `step ${i} dom_read needs attach_electron first`, trace };
+        const selector = subst(step.dom_read, callArgs);
+        lastRead = await electronSession.readBySelector(selector);
+        trace.push({ step: i, dom_read: selector, value: lastRead });
+      } else if (step.press_keys != null) {
+        if (!electronSession) return { error: `step ${i} press_keys needs attach_electron first`, trace };
+        const chord = subst(step.press_keys, callArgs);
+        const r = await electronSession.pressKey(chord);
+        trace.push({ step: i, press_keys: chord, ok: true });
+        await new Promise(res => setTimeout(res, 120));
+      } else if (step.eval != null) {
+        if (!electronSession) return { error: `step ${i} eval needs attach_electron first`, trace };
+        const expr = subst(step.eval, callArgs);
+        const r = await electronSession.evalJS(expr);
+        trace.push({ step: i, eval: expr.slice(0, 80), ok: !!r.ok });
+        if (!r.ok) return { error: `step ${i} eval failed: ${r.error}`, trace };
+        lastRead = r.value;
       } else {
         trace.push({ step: i, skipped: 'unrecognized', step_obj: step });
       }
@@ -361,6 +558,7 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.error(`[AgentDOM Desktop] ${signal} received, shutting down...`);
+  try { await disposeElectronSession(); } catch (_) {}
   try { await server.close().catch(() => {}); } catch (_) {}
   process.exit(0);
 }

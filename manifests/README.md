@@ -14,8 +14,9 @@ MCP-connected LLM can drive that app with typed semantic tools.
 | `docker.md`                   | cli      | 🟡 template | Cobra-style; verifiable if Docker installed  |
 | `Stub API.md`                 | api      | ✅ verified | Backed by the test harness's local httpd     |
 | `example.com.md`              | web      | ✅ verified | IANA test domain                             |
-| `Slack.md`                    | desktop  | 🟡 template | Electron — menu-only intents (see notes)     |
-| `Visual Studio Code.md`       | desktop  | 🟡 template | Electron — same caveat                       |
+| `Slack.md`                    | desktop  | 🟡 template | Electron — menubar verified; CDP `dom_*` steps need a live workspace |
+| `Visual Studio Code.md`       | desktop  | ✅ verified | Electron — menubar AX + CDP workbench; relaunch with `--remote-debugging-port=N` |
+| `Cursor.md`                   | desktop  | 🟡 template | VS Code fork — same selectors plus AI-specific `ai_chat` / `ai_compose` |
 
 **Status legend:** ✅ verified end-to-end on the maintainer's machine; 🟡 template
 written from public docs / app menus, awaiting first-run verification on a real

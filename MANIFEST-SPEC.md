@@ -75,8 +75,39 @@ tools:
 `name` is what the agent calls (`clear()`); `description` is its docstring;
 `click` is the AX label the dispatcher invokes — alias-resolved.
 
-Future versions will support multi-step intents (`steps:`), parameterized
-tools (`params:`), and verification (`verify:`).
+### Multi-step tools
+
+When a single click isn't enough, replace `click:` with `steps:` (a list)
+and `params:` (an array of `{ name, type, description }`). Param values
+substitute into step strings as `${name}`.
+
+#### Step kinds — desktop (AX bridge)
+
+| Step                       | Effect                                                       |
+| -------------------------- | ------------------------------------------------------------ |
+| `click: <label>`           | AXPress the element with that label (alias-resolved).        |
+| `type: { field, text }`    | Focus the named field; type via `typeIntoField`.             |
+| `read: <target>`           | Returns `display`/`clipboard`/field value as `result`.       |
+| `expression_chars: <text>` | Split chars, alias-resolve each, click in sequence (calc).   |
+| `wait: <ms>`               | Sleep, in milliseconds.                                      |
+
+#### Step kinds — Electron (CDP bridge)
+
+Available after the agent (or `scan_app`) calls `attach_electron`. The app
+must have been launched with `--remote-debugging-port=<n>`.
+
+| Step                                   | Effect                                                      |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `dom_click: <css-selector>`            | querySelector + click in the renderer.                      |
+| `dom_click_text: <visible-text>`       | Find anchor/button by inner text + click.                   |
+| `dom_type: { selector\|label, text }`  | Focus + dispatch real `input` event so React/Monaco see it. |
+| `dom_read: <css-selector>`             | innerText of the first match (also sets `result`).          |
+| `press_keys: <chord>`                  | CDP keyboard chord, e.g. `Meta+Shift+KeyP`.                 |
+| `eval: <js-expression>`                | Raw JS in the renderer; sparingly. `result` = return value. |
+
+Mix freely — a tool can switch between AX and DOM in one steps list. This
+matters for Electron apps where the menubar opens a dialog and the dialog
+is web content (open the menu via `click:`, fill the dialog via `dom_type:`).
 
 ## Worked example
 

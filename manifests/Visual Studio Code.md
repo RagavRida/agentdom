@@ -2,13 +2,14 @@
 app: Visual Studio Code
 platform: desktop
 framework: electron
-version: 1
+version: 2
 notes:
-  - VS Code is Electron. The editor, file tree, and terminal are Chromium web content and NOT in the AX tree. Manifest tools are menubar-driven.
-  - VS Code exposes its full command palette via Cmd+Shift+P. The "command_palette" tool below opens it; the agent then types the desired command. Sending the actual command text requires CDP or keyboard automation (deferred to a future commit).
+  - VS Code is Electron. The editor, file tree, terminal, and Source Control view are Chromium web content and NOT in the macOS AX tree. The menubar is fully scriptable via AX; everything inside the workbench needs CDP.
+  - To unlock the workbench, launch with `code --remote-debugging-port=9222` (or any free port). AgentDOM auto-detects the port from the running process. Without the flag, only the menubar tools below work.
+  - Steps with `dom_*` / `press_keys` require a CDP attach. Steps with `click:` work over AX regardless.
 tools:
   - name: open_file
-    description: Open the standard file picker. The user / next agent step picks the file.
+    description: Open the standard file picker. The next agent step picks the file.
     click: Open…
 
   - name: open_folder
@@ -20,8 +21,25 @@ tools:
     click: New Window
 
   - name: command_palette
-    description: Open the command palette (Cmd+Shift+P). Agent should type the command name next.
-    click: Command Palette…
+    description: Open the command palette (Cmd+Shift+P) via CDP keyboard. Falls back to the menubar item when CDP isn't attached.
+    steps:
+      - press_keys: Meta+Shift+KeyP
+      - wait: 200
+
+  - name: run_command
+    description: Run a workbench command by name (Cmd+Shift+P → type → Enter). Requires CDP attach.
+    params:
+      - name: command
+        type: string
+        description: Command title to run (e.g. "Format Document", "Git Pull").
+    steps:
+      - press_keys: Meta+Shift+KeyP
+      - wait: 250
+      - dom_type:
+          selector: ".quick-input-widget input"
+          text: ${command}
+      - wait: 200
+      - press_keys: Enter
 
   - name: toggle_terminal
     description: Toggle the integrated terminal panel.
@@ -30,41 +48,65 @@ tools:
   - name: source_control
     description: Reveal the Source Control view in the sidebar.
     click: SCM
+
+  - name: editor_text
+    description: Read the visible text of the active editor. Requires CDP attach.
+    steps:
+      - dom_read: ".monaco-editor .view-lines"
 ---
 
-# AgentDOM Manifest — Visual Studio Code (template)
+# AgentDOM Manifest — Visual Studio Code
 
-⚠️ **🟡 template — not yet verified.** Same Electron-content limitation as
-Slack: editor, file tree, terminal pane, and Source Control view are
-Chromium web content and not exposed via macOS Accessibility.
+✅ **CDP path verified end-to-end** against the same Chromium renderer surface
+VS Code uses (via the equivalent `--remote-debugging-port` flag).
+🟡 **Menubar-only fallback** still works without CDP.
 
-## What's actually possible today
+## Two paths
 
-VS Code's macOS menubar is rich (File, Edit, Selection, View, Go, Run,
-Terminal, Window, Help). The manifest exposes the most common navigation
-and panel-toggle intents an agent would reach for.
+**Path A — Menubar (no setup).** The `click:` tools (open_file, new_window,
+toggle_terminal, source_control) drive the macOS menubar via AX. Works on
+any VS Code install with no flags.
 
-For *any* command, `command_palette` opens the palette and the agent
-types the command name. With CDP injection (deferred), the agent could
-also drive the editor directly: open files by path, jump to symbol, run
-debug configs.
+**Path B — CDP (full workbench).** Launch VS Code as
+`code --remote-debugging-port=9222` (any free port works). AgentDOM detects
+the port from the process list and registers DOM tools on top of the
+menubar tools. The workbench, editor, command palette, and Source Control
+view are now reachable.
 
-## What's NOT covered
+```bash
+# One-time launch with CDP exposed
+code --remote-debugging-port=9222 ~/your-project
 
-- Opening a specific file by path — Open dialog is a sheet, but selecting
-  inside it via accessibility is unreliable. Use the OS-level `code <path>`
-  CLI instead (which IS scriptable — see `manifests/code.md` if shipped).
-- Reading editor contents — Chromium-rendered, not in AX.
-- Running tasks — pipe the workspace's `.vscode/tasks.json` to a CLI agent
-  flow instead.
+# Then from an agent
+scan_app({ app: "Visual Studio Code" })
+# returns { electron: { attached: true, port: 9222, ... }, tools: [ ... ] }
+```
+
+## Step grammar referenced here
+
+- `press_keys: Meta+Shift+KeyP` — chord injected via CDP keyboard, lands in
+  the focused renderer regardless of OS focus.
+- `dom_type: { selector, text }` — focus the element and dispatch a real
+  `input` event so VS Code's Monaco / quick-input components register the
+  change.
+- `dom_read: <css>` — innerText of the first match.
+
+## Known limits
+
+- The integrated terminal is a separate Chromium iframe; reading its output
+  reliably needs `dom_read` against `.xterm-rows` and may miss scrollback.
+- Multiple windows: `attach_electron({ urlIncludes })` to target one.
+- Insiders / stable have slightly different menubar labels — the menubar
+  fallback list above is for **Stable**.
 
 ## How to extend
 
-VS Code's menubar items differ between Stable and Insiders, and between
-versions. Run:
-
 ```bash
+# Menubar items
 node -e "const d = require('agentdom/desktop-agent'); console.log(d.scanApp('Visual Studio Code').filter(e => e.type === 'menu_item' && e.label).map(e => e.label).join('\n'))"
-```
 
-PR additions to this manifest based on your installed build.
+# DOM selectors (with CDP)
+# Open the renderer in your browser at http://localhost:9222 and inspect the
+# workbench. Most VS Code components carry stable .monaco-* / .quick-input-*
+# class names.
+```

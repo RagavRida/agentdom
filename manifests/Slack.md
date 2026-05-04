@@ -31,35 +31,49 @@ tools:
   - name: set_status
     description: Open the status/profile editor.
     click: Set Yourself as…
+
+  - name: send_message
+    description: Send a message in the currently-active conversation. Requires CDP attach (relaunch Slack with --remote-debugging-port=N).
+    params:
+      - name: text
+        type: string
+        description: Message body to send.
+    steps:
+      - dom_click: '[data-qa="message_input"] [contenteditable="true"]'
+      - dom_type:
+          selector: '[data-qa="message_input"] [contenteditable="true"]'
+          text: ${text}
+      - press_keys: Enter
+
+  - name: read_latest
+    description: Read the most recent visible message in the active conversation. Requires CDP attach.
+    steps:
+      - dom_read: '[data-qa="virtual-list-item"]:last-child'
 ---
 
-# AgentDOM Manifest — Slack (template)
+# AgentDOM Manifest — Slack
 
-⚠️ **This is a 🟡 template, not yet verified end-to-end.** Slack's labels may
-shift between versions; test against your installed Slack and adjust.
+🟡 **Template — labels verified against Slack 4.x menubar; CDP `dom_*` steps
+unverified against a live workspace** (the structural pattern matches Slack's
+documented `data-qa` attributes but workspaces vary).
 
-## What's actually possible today
+## Two paths
 
-Slack runs on Electron. The scanner sees:
+**Path A — Menubar (no setup).** The `click:` tools (preferences, jump,
+search, set status) drive the macOS menubar. Works on any Slack install.
 
-- The full macOS menubar (File, Edit, View, Window, Help, etc. — accessible)
-- Window chrome (close/minimize/zoom buttons)
-- Slack's *web* content (channel list, message input, threads): **invisible**
-
-So this manifest's tools are all menubar-driven. They open dialogs, jump to
-the quick switcher, or trigger keyboard shortcuts via the menu's bound
-accelerator.
+**Path B — CDP (workbench).** Relaunch Slack with
+`open -a Slack --args --remote-debugging-port=9222` (or set `SLACK_DEVELOPER_MENU=1`
+and `--remote-debugging-port` via a wrapper). AgentDOM auto-detects the port
+and the `send_message` / `read_latest` tools above register.
 
 ## What's NOT covered
 
-- Sending a message to a channel or DM — message input is web content.
-- Reading the unread count or recent messages — same reason.
-- Channel-list navigation — same reason.
-
-For those flows, the right answer is **Chrome DevTools Protocol injection** —
-attach to Slack's Electron renderer process and inject `agentdom.js`, the
-same way the web MCP server handles real browser pages. That's deferred
-for a future commit.
+- Channel-list navigation by free-text — selectors here target the *active*
+  conversation. Use `jump_to_quick_switcher` + `dom_type` against
+  `[data-qa="quick_switcher_input"]` to jump first.
+- Threaded replies — the thread pane is a separate flex container; PR a
+  `send_thread_reply` step that scopes to `[data-qa="thread_pane"]`.
 
 ## How to extend
 

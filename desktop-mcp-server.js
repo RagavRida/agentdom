@@ -16,6 +16,7 @@ const { compile } = require('./compiler');
 const { loadManifest, resolveAlias, mergeManifestTools } = require('./compiler/from-manifest');
 const electronBridge = require('./desktop-agent/electron-bridge');
 const launchCmd = require('./commands/launch');
+const discovery = require('./discovery');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -174,6 +175,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'discover_surfaces',
+      description: 'Enumerate every surface this machine offers an agent right now: manifested desktop apps (running + framework), CLI tools (installed?), live CDP endpoints (sessions.json + process scan), and an inverted intent index grouping capabilities across apps (e.g. messaging.send → Slack, Discord). Use this BEFORE picking which app to drive — the intent index lets the LLM route by capability, not app name. Returns hints for the next action when something is installed but idle.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          intent: { type: 'string', description: 'Optional: filter results to apps that declare this intent (e.g. "messaging.send").' },
+          skipCDP: { type: 'boolean', description: 'Skip the CDP probe step (faster). Default false.' },
+        },
+      },
+    },
+    {
       name: 'launch_electron',
       description: 'Relaunch an Electron app with --remote-debugging-port exposed and attach in one step. ZERO-SETUP path: closes the gap where users would otherwise have to relaunch the app from a terminal themselves. Refuses to relaunch a running app unless { force: true } (force closes existing windows; unsaved state may be lost).',
       inputSchema: {
@@ -252,6 +264,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const result = await refreshScan(args.app, { port: args.port, urlIncludes: args.urlIncludes, forceElectron: true });
         if (result.error) {
           return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
+        }
+        return ok(result);
+      }
+      if (name === 'discover_surfaces') {
+        const result = await discovery.discover({ skipCDP: !!args?.skipCDP });
+        if (args?.intent && typeof args.intent === 'string') {
+          const want = args.intent.trim();
+          const filtered = result.intents[want] || [];
+          return ok({
+            filter: { intent: want },
+            providers: filtered,
+            note: filtered.length === 0
+              ? `No manifested app declares intent "${want}". Available intents: ${Object.keys(result.intents).join(', ')}`
+              : `${filtered.length} app(s) declare "${want}".`,
+          });
         }
         return ok(result);
       }

@@ -250,6 +250,43 @@ async function testDesktop() {
       const data = jsonText(r);
       assert.ok(data.error, `expected error string, got: ${JSON.stringify(data)}`);
     });
+
+    await test('desktop: discover_surfaces is exposed and returns an envelope', async () => {
+      const list = await client.listTools();
+      assert.ok(list.tools.find(t => t.name === 'discover_surfaces'), 'discover_surfaces should be listed');
+
+      const r = await client.callTool({ name: 'discover_surfaces', arguments: { skipCDP: true } });
+      assert.ok(!r.isError, `discover_surfaces returned error: ${JSON.stringify(jsonText(r))}`);
+      const data = jsonText(r);
+      assert.ok(data.summary, 'envelope must include a summary');
+      assert.ok(Array.isArray(data.desktop_apps) && data.desktop_apps.length > 0, 'desktop_apps should be populated from the bundled registry');
+      assert.ok(Array.isArray(data.cli_tools), 'cli_tools must be an array');
+      assert.ok(Array.isArray(data.manifests), 'manifests must be an array');
+      assert.ok(data.intents && typeof data.intents === 'object', 'intents must be an index object');
+    });
+
+    await test('desktop: discover_surfaces intent filter narrows to providers', async () => {
+      const r = await client.callTool({
+        name: 'discover_surfaces',
+        arguments: { intent: 'messaging.send', skipCDP: true },
+      });
+      assert.ok(!r.isError);
+      const data = jsonText(r);
+      assert.deepStrictEqual(data.filter, { intent: 'messaging.send' });
+      assert.ok(Array.isArray(data.providers), 'providers must be an array');
+      assert.ok(data.providers.find(p => p.app === 'Slack'), `expected Slack to provide messaging.send; got ${JSON.stringify(data.providers)}`);
+    });
+
+    await test('desktop: discover_surfaces intent filter on unknown intent yields empty + hint', async () => {
+      const r = await client.callTool({
+        name: 'discover_surfaces',
+        arguments: { intent: 'totally.fictional.intent', skipCDP: true },
+      });
+      assert.ok(!r.isError);
+      const data = jsonText(r);
+      assert.strictEqual(data.providers.length, 0);
+      assert.ok(/Available intents/.test(data.note), `note should list known intents; got: ${data.note}`);
+    });
   } finally {
     await close();
   }

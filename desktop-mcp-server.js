@@ -18,6 +18,7 @@ const electronBridge = require('./desktop-agent/electron-bridge');
 const launchCmd = require('./commands/launch');
 const discovery = require('./discovery');
 const authWallet = require('./commands/auth');
+const secrets    = require('./lib/secrets');
 const policy = require('./lib/policy');
 const memory = require('./lib/memory');
 
@@ -876,8 +877,17 @@ async function dispatchIntent({ intent, args = {}, provider: forcedProvider, dry
   // 4. Dispatch.
   const cap = chosen.capability;
   if (chosen.source === 'well-known' && cap.transport === 'api') {
-    const tok = await authWallet.token(chosen.provider);
-    if (tok.error) return { error: tok.error, hint: `Run wallet_auth({ provider: "${chosen.provider}" }).` };
+    // Fully headless: try secrets resolver first (env → wallet → keychain → AWS SSM → Vault → 1Password)
+    let tok = await secrets.resolve(chosen.provider);
+    if (!tok) {
+      // Fall back to authWallet (handles existing sessions)
+      const walletTok = await authWallet.token(chosen.provider);
+      if (walletTok && !walletTok.error) tok = walletTok;
+    }
+    if (!tok) {
+      const envVar = secrets.envKey(chosen.provider);
+      return { error: `No credentials for ${chosen.provider}`, hint: `Set ${envVar}=your-token (no human login needed)` };
+    }
     const result = await dispatchHttpCapability({ provider: chosen.provider, capability: cap, args, token: tok });
     memory.remember({ type: 'intent_exec', intent, provider: chosen.provider, outcome: result.ok ? 'success' : 'failure' });
     return result;

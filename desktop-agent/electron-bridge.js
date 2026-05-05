@@ -173,92 +173,126 @@ class ElectronSession {
     return schema;
   }
 
-  /** Click an element by visible text (anchor/button/role=button) — the same
-   *  strategy agentdom.js uses, run inside the renderer. Returns
-   *  { clicked, matched, tag, text }. */
+  /** Click an element by visible text (anchor/button/role=button). Walks
+   *  every frame + shadow root. Returns first match. */
   async clickByText(text, opts = {}) {
     const page = await this._activePage(opts);
-    return page.evaluate((needle) => {
-      const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-      const target = norm(needle);
-      const candidates = Array.from(document.querySelectorAll(
-        'a, button, [role="button"], [role="menuitem"], [role="tab"], input[type="button"], input[type="submit"]'
-      ));
-      // innerText is empty for unrendered elements in headless Chrome — fall
-      // back to textContent so the matcher stays correct off-screen.
-      const textOf = el => el.innerText || el.value || el.getAttribute('aria-label') || el.textContent || '';
-      const matches = candidates.filter(el => norm(textOf(el)).includes(target));
-      if (matches.length === 0) return { clicked: false, matched: 0 };
-      const el = matches[0];
-      el.scrollIntoView({ block: 'center' });
-      el.click();
-      return {
-        clicked: true,
-        matched: matches.length,
-        tag: el.tagName.toLowerCase(),
-        text: textOf(el).slice(0, 120),
-      };
-    }, text);
+    let totalMatches = 0;
+    for (const frame of page.frames()) {
+      try {
+        const r = await frame.evaluate((needle) => {
+          const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          const target = norm(needle);
+          const deepAll = (root, sel) => {
+            const out = [...root.querySelectorAll(sel)];
+            root.querySelectorAll('*').forEach(e => { if (e.shadowRoot) out.push(...deepAll(e.shadowRoot, sel)); });
+            return out;
+          };
+          const candidates = deepAll(document,
+            'a, button, [role="button"], [role="menuitem"], [role="tab"], input[type="button"], input[type="submit"]');
+          // innerText is empty for unrendered elements in headless Chrome — fall
+          // back to textContent so the matcher stays correct off-screen.
+          const textOf = el => el.innerText || el.value || el.getAttribute('aria-label') || el.textContent || '';
+          const matches = candidates.filter(el => norm(textOf(el)).includes(target));
+          if (!matches.length) return { matched: 0 };
+          const el = matches[0];
+          el.scrollIntoView({ block: 'center' });
+          el.click();
+          return { clicked: true, matched: matches.length, tag: el.tagName.toLowerCase(), text: textOf(el).slice(0, 120) };
+        }, text);
+        if (r && r.clicked) return { ...r, frame: frame.url().slice(0, 80) };
+        totalMatches += r?.matched || 0;
+      } catch (_) {}
+    }
+    return { clicked: false, matched: totalMatches, frames_checked: page.frames().length };
   }
 
-  /** Click by CSS selector. Useful when the manifest knows the surface. */
+  /** Click by CSS selector. Searches main frame first, then every nested
+   *  iframe (including cross-origin) via Puppeteer's frame tree. */
   async clickBySelector(selector, opts = {}) {
     const page = await this._activePage(opts);
-    return page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return { clicked: false, matched: 0, selector: sel };
-      el.scrollIntoView({ block: 'center' });
-      el.click();
-      return { clicked: true, matched: 1, selector: sel, tag: el.tagName.toLowerCase() };
-    }, selector);
+    for (const frame of page.frames()) {
+      try {
+        const r = await frame.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          el.scrollIntoView({ block: 'center' });
+          el.click();
+          return { clicked: true, matched: 1, selector: sel, tag: el.tagName.toLowerCase() };
+        }, selector);
+        if (r) return { ...r, frame: frame.url().slice(0, 80) };
+      } catch (_) { /* frame detached or eval failed; try next */ }
+    }
+    return { clicked: false, matched: 0, selector, frames_checked: page.frames().length };
   }
 
-  /** Type into an input/textarea matched by selector or label. Dispatches an
-   *  input event so React/Vue/etc. components register the change. */
+  /** Type into an input/textarea/contenteditable. Searches main frame +
+   *  every iframe. Uses the native HTMLInputElement.prototype.value setter
+   *  so React/Vue/Lit/Svelte controlled components register the change
+   *  (plain `el.value=` is silently dropped by React's value tracker).
+   *  Also walks shadow roots when looking up by label. */
   async typeIntoField({ selector, label, text }, opts = {}) {
     const page = await this._activePage(opts);
-    return page.evaluate(({ selector, label, text }) => {
-      const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
-      let el = null;
-      if (selector) el = document.querySelector(selector);
-      if (!el && label) {
-        const target = norm(label);
-        el = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
-          .find(node => {
-            const aria = node.getAttribute('aria-label');
-            const placeholder = node.getAttribute('placeholder');
-            const id = node.getAttribute('id');
-            const lbl = id ? document.querySelector(`label[for="${id}"]`) : null;
-            const labelText = lbl ? lbl.innerText : '';
-            return [aria, placeholder, labelText].some(s => s && norm(s).includes(target));
-          });
-      }
-      if (!el) return { typed: false, matched: 0 };
-      el.focus();
-      if (el.isContentEditable) {
-        el.innerText = text;
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
-      } else {
-        const proto = el.tagName === 'TEXTAREA'
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-        if (setter) setter.call(el, text); else el.value = text;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      return { typed: true, matched: 1, tag: el.tagName.toLowerCase() };
-    }, { selector, label, text });
+    for (const frame of page.frames()) {
+      try {
+        const r = await frame.evaluate(({ selector, label, text }) => {
+          const norm = s => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+          // Walk shadow DOM when looking up by label (matches agentdom.js deepQueryAll).
+          const deepAll = (root, sel) => {
+            const out = [...root.querySelectorAll(sel)];
+            root.querySelectorAll('*').forEach(e => { if (e.shadowRoot) out.push(...deepAll(e.shadowRoot, sel)); });
+            return out;
+          };
+          let el = null;
+          if (selector) el = deepAll(document, selector)[0];
+          if (!el && label) {
+            const target = norm(label);
+            el = deepAll(document, 'input, textarea, [contenteditable="true"]').find(node => {
+              const aria = node.getAttribute('aria-label');
+              const placeholder = node.getAttribute('placeholder');
+              const id = node.getAttribute('id');
+              const lbl = id ? document.querySelector(`label[for="${id}"]`) : null;
+              const labelText = lbl ? lbl.innerText : '';
+              return [aria, placeholder, labelText].some(s => s && norm(s).includes(target));
+            });
+          }
+          if (!el) return null;
+          el.focus();
+          if (el.isContentEditable) {
+            el.innerText = text;
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          } else {
+            const proto = el.tagName === 'TEXTAREA'
+              ? window.HTMLTextAreaElement.prototype
+              : window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) setter.call(el, text); else el.value = text;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          return { typed: true, matched: 1, tag: el.tagName.toLowerCase() };
+        }, { selector, label, text });
+        if (r) return { ...r, frame: frame.url().slice(0, 80) };
+      } catch (_) { /* try next frame */ }
+    }
+    return { typed: false, matched: 0, frames_checked: page.frames().length };
   }
 
-  /** Read text content of one element by selector. */
+  /** Read text content of one element by selector. Walks all frames. */
   async readBySelector(selector, opts = {}) {
     const page = await this._activePage(opts);
-    return page.evaluate((sel) => {
-      const el = document.querySelector(sel);
-      if (!el) return null;
-      return (el.innerText || el.textContent || '').trim();
-    }, selector);
+    for (const frame of page.frames()) {
+      try {
+        const r = await frame.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return null;
+          return (el.innerText || el.textContent || '').trim();
+        }, selector);
+        if (r != null) return r;
+      } catch (_) { /* try next frame */ }
+    }
+    return null;
   }
 
   /** Run an arbitrary expression in the renderer. Use sparingly — the manifest

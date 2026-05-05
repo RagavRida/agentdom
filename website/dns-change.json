@@ -14,7 +14,7 @@
       }
     },
     {
-      "Action": "CREATE",
+      "Action": "UPSERT",
       "ResourceRecordSet": {
         "Name": "getagentdom.com.",
         "Type": "A",
@@ -25,7 +25,7 @@
       }
     },
     {
-      "Action": "CREATE",
+      "Action": "UPSERT",
       "ResourceRecordSet": {
         "Name": "www.getagentdom.com.",
         "Type": "CNAME",

@@ -368,6 +368,51 @@ print(json.dumps(out))
     }
   },
 
+  /** Look up an app's main window frame via CGWindowList. Returns
+   *  `{ x, y, w, h }` in logical points (the same coordinate space clickAt
+   *  expects), or null if no window is found. Works for Catalyst / SwiftUI
+   *  / sandboxed apps where AX kAXWindowsAttribute returns empty. */
+  _windowFrame(appName) {
+    const name = validateAppName(appName);
+    const py = `
+import Quartz, json, sys
+wl = Quartz.CGWindowListCopyWindowInfo(
+    Quartz.kCGWindowListOptionAll | Quartz.kCGWindowListExcludeDesktopElements,
+    Quartz.kCGNullWindowID)
+wa = [w for w in wl if w.get('kCGWindowOwnerName','') == '${name.replace(/"/g, '')}' and w.get('kCGWindowLayer', 99) == 0]
+# Skip 0×0 phantom windows (status item icons), pick the largest remaining.
+wa = [w for w in wa if w.get('kCGWindowBounds', {}).get('Width', 0) > 100 and w.get('kCGWindowBounds', {}).get('Height', 0) > 100]
+if not wa:
+    print('null'); sys.exit()
+wa.sort(key=lambda w: w['kCGWindowBounds']['Width'] * w['kCGWindowBounds']['Height'], reverse=True)
+b = wa[0].get('kCGWindowBounds', {})
+print(json.dumps({'x': b.get('X'), 'y': b.get('Y'), 'w': b.get('Width'), 'h': b.get('Height')}))
+`;
+    try {
+      const out = execFileSync('python3', ['-c', py], { encoding: 'utf-8', timeout: 3000 }).trim();
+      if (!out || out === 'null') return null;
+      return JSON.parse(out);
+    } catch (_) { return null; }
+  },
+
+  /** Click at window-relative coordinates (in logical points). Resolves the
+   *  app's window position via CGWindowList, adds the offset, dispatches a
+   *  CGEvent click. The right primitive when AX can't reach an element
+   *  (Catalyst WKWebView, custom-rendered Electron content) and you know
+   *  the position from the window's design — no Retina/pixel math needed
+   *  because both window position and click coords speak logical points. */
+  clickInWindow(appName, relX, relY) {
+    const name = validateAppName(appName);
+    const rx = validateCoord(relX, 'relX');
+    const ry = validateCoord(relY, 'relY');
+    const frame = this._windowFrame(name);
+    if (!frame) return { clicked: false, error: 'window not found', hint: 'App may not be running, hidden, or sandboxed in a way that hides it from CGWindowList.', app: name };
+    const sx = Math.round(frame.x + rx);
+    const sy = Math.round(frame.y + ry);
+    this.clickAt(sx, sy);
+    return { clicked: true, app: name, screen: { x: sx, y: sy }, window: frame };
+  },
+
   /** Type text into the focused field of `appName`. ASCII → keystroke; non-ASCII → clipboard paste. */
   typeText(appName, text) {
     const name = validateAppName(appName);
@@ -991,6 +1036,13 @@ module.exports = {
   scroll: (app, direction, amount) => desktop?.scroll?.(app, direction, amount),
   scrollTo: (app, position) => desktop?.scrollTo?.(app, position),
   drag: (fromX, fromY, toX, toY) => desktop?.drag?.(fromX, fromY, toX, toY),
+
+  /** Click at window-relative coordinates. Resolves the app's window frame
+   *  via CGWindowList (macOS) and translates to screen coords. */
+  clickInWindow: (app, relX, relY) => desktop?.clickInWindow?.(app, relX, relY),
+
+  /** Get a window's frame: { x, y, w, h } in logical points. macOS only. */
+  getWindowFrame: (app) => desktop?._windowFrame?.(app) || null,
 
   synthesizeTools(elements) {
     if (!Array.isArray(elements)) return [];

@@ -22,6 +22,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { execFileSync, spawn } = require('child_process');
+const { atomicWrite } = require('../lib/resilience');
 
 const SESSIONS_DIR = path.join(os.homedir(), '.agentdom');
 const SESSIONS_FILE = path.join(SESSIONS_DIR, 'sessions.json');
@@ -48,7 +49,7 @@ function readSessions() {
 
 function writeSessions(list) {
   ensureSessionsDir();
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(list, null, 2), { mode: 0o600 });
+  atomicWrite(SESSIONS_FILE, list, { mode: 0o600 });
 }
 
 function pidAlive(pid) {

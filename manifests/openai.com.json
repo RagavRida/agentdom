@@ -1,0 +1,80 @@
+{
+  "version": "1.0",
+  "host": "api.openai.com",
+  "name": "OpenAI",
+  "description": "AgentDOM polyfill for OpenAI API — chat completions, embeddings, images.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "key_env": "OPENAI_API_KEY"
+  },
+  "capabilities": [
+    {
+      "intent": "chat.complete",
+      "description": "Send a chat prompt and get a completion from a GPT model.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "args": {
+        "model": { "type": "string", "required": true, "description": "Model ID (e.g. gpt-4o, gpt-4-turbo)" },
+        "messages": { "type": "array", "required": true, "description": "Array of { role, content } messages" },
+        "temperature": { "type": "number", "required": false, "description": "Sampling temperature 0-2" },
+        "max_tokens": { "type": "number", "required": false },
+        "stream": { "type": "boolean", "required": false }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "embeddings.create",
+      "description": "Create vector embeddings for a list of text inputs.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.openai.com/v1/embeddings",
+      "args": {
+        "model": { "type": "string", "required": true, "description": "Embedding model (e.g. text-embedding-3-small)" },
+        "input": { "type": "array", "required": true, "description": "Array of strings to embed" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "images.generate",
+      "description": "Generate an image from a text prompt using DALL-E.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.openai.com/v1/images/generations",
+      "args": {
+        "prompt": { "type": "string", "required": true, "description": "Image description" },
+        "model": { "type": "string", "required": false, "description": "dall-e-3 or dall-e-2" },
+        "n": { "type": "number", "required": false, "description": "Number of images" },
+        "size": { "type": "string", "required": false, "description": "1024x1024, 1792x1024, 1024x1792" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "models.list",
+      "description": "List all available OpenAI models.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.openai.com/v1/models",
+      "args": {},
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "files.upload",
+      "description": "Upload a file for use with fine-tuning or assistants.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.openai.com/v1/files",
+      "args": {
+        "file": { "type": "string", "required": true, "description": "File path or base64 content" },
+        "purpose": { "type": "string", "required": true, "description": "fine-tune | assistants | batch" }
+      },
+      "side_effects": ["external", "write_local"], "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 5,
+    "api_type": "rest",
+    "base_url": "https://api.openai.com/v1",
+    "docs": "https://platform.openai.com/docs/api-reference"
+  }
+}

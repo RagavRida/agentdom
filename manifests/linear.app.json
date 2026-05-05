@@ -1,0 +1,138 @@
+{
+  "version": "1.0",
+  "host": "linear.app",
+  "name": "Linear",
+  "description": "AgentDOM polyfill manifest for Linear — issue tracking, projects, teams, and workflow automation.",
+  "generated_at": "2026-05-05T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "auth_url": "https://linear.app/oauth/authorize",
+    "token_url": "https://api.linear.app/oauth/token",
+    "scopes": ["read", "write"]
+  },
+  "capabilities": [
+    {
+      "intent": "issues.list",
+      "description": "List issues. Filter by team, state, assignee, or label.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "query": { "type": "string", "required": false, "description": "Search query" },
+        "teamId": { "type": "string", "required": false, "description": "Filter by team ID" },
+        "stateId": { "type": "string", "required": false, "description": "Filter by workflow state ID" },
+        "assigneeId": { "type": "string", "required": false, "description": "Filter by assignee user ID" },
+        "limit": { "type": "number", "required": false, "description": "Max results (default 25)" }
+      },
+      "graphql": "query($filter: IssueFilter, $first: Int) { issues(filter: $filter, first: $first) { nodes { id identifier title description state { name } assignee { name } priority createdAt url } } }",
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.create",
+      "description": "Create a new Linear issue.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "title": { "type": "string", "required": true, "description": "Issue title" },
+        "description": { "type": "string", "required": false, "description": "Issue description (markdown)" },
+        "teamId": { "type": "string", "required": true, "description": "Team ID to create issue in" },
+        "priority": { "type": "number", "required": false, "description": "Priority 0=no, 1=urgent, 2=high, 3=medium, 4=low" },
+        "assigneeId": { "type": "string", "required": false, "description": "Assignee user ID" },
+        "labelIds": { "type": "array", "required": false, "description": "Label IDs to attach" }
+      },
+      "graphql": "mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier title url } } }",
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.update",
+      "description": "Update an existing Linear issue (title, state, priority, assignee).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Issue ID" },
+        "title": { "type": "string", "required": false, "description": "New title" },
+        "description": { "type": "string", "required": false, "description": "New description" },
+        "stateId": { "type": "string", "required": false, "description": "Workflow state ID" },
+        "priority": { "type": "number", "required": false, "description": "Priority level" },
+        "assigneeId": { "type": "string", "required": false, "description": "Assignee user ID" }
+      },
+      "graphql": "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { id identifier title state { name } } } }",
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.get",
+      "description": "Get a single Linear issue by ID or identifier (e.g. ENG-42).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Issue UUID or identifier (ENG-42)" }
+      },
+      "graphql": "query($id: String!) { issue(id: $id) { id identifier title description state { name } assignee { name email } priority createdAt updatedAt url comments { nodes { body user { name } } } } }",
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.delete",
+      "description": "Delete (archive) a Linear issue.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Issue UUID" }
+      },
+      "graphql": "mutation($id: String!) { issueDelete(id: $id) { success } }",
+      "side_effects": ["delete", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "teams.list",
+      "description": "List all Linear teams the authenticated user has access to.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {},
+      "graphql": "query { teams { nodes { id name key description } } }",
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "users.me",
+      "description": "Get the currently authenticated user.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {},
+      "graphql": "query { viewer { id name email displayName } }",
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "comments.create",
+      "description": "Add a comment to a Linear issue.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": {
+        "issueId": { "type": "string", "required": true, "description": "Issue UUID" },
+        "body": { "type": "string", "required": true, "description": "Comment body (markdown)" }
+      },
+      "graphql": "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id body } } }",
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 8,
+    "api_type": "graphql",
+    "base_url": "https://api.linear.app/graphql",
+    "docs": "https://developers.linear.app"
+  }
+}

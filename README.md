@@ -1,168 +1,247 @@
 # AgentDOM
 
-**The runtime that lets any AI agent operate any website like a human.**
+**The universal protocol for AI agents to interact with any software.**
 
-[![npm](https://img.shields.io/npm/v/agentdom)](https://npmjs.com/package/agentdom) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+```bash
+npm install -g agentdom
+agentdom auth linear.app        # one-time OAuth consent
+agentdom goal "Create a bug report in Linear for the login crash"
+```
 
-AgentDOM gives autonomous AI agents a machine-readable schema of any webpage and human-like interaction capabilities — no APIs needed.
+Agents are already browsing the web, making purchases, and managing CRMs. But they're doing it on top of software designed for humans — clicking buttons, scraping screens, guessing CSS selectors. **AgentDOM replaces that with a machine-native foundation.**
+
+Instead of visual interfaces (forms, buttons, dashboards), agents get:
+- **Machine-readable interfaces** — `dispatch_intent("issues.create", {...})` 
+- **Secure auth** — OAuth tokens in your OS Keychain, never in a cloud
+- **Universal surface coverage** — REST APIs, GraphQL, native desktop, browser UI, CLI
+
+---
+
+## How It Works
+
+```
+Agent Goal: "Create a Linear ticket for the login crash"
+              ↓
+         AgentDOM Planner
+         (generates plan, validates, checks policy)
+              ↓
+         Dispatch Router
+         (finds cheapest transport: API < CLI < UI)
+              ↓
+         Auth Wallet
+         (Keychain token for linear.app, zero prompts after first consent)
+              ↓
+         POST https://api.linear.app/graphql
+         → { success: true, issue: { id: "ENG-42", url: "..." } }
+```
+
+No browser. No screenshot. No HTML parsing. **One round trip.**
+
+---
 
 ## Quick Start
 
 ```bash
+# Install globally
 npm install -g agentdom
-agentdom https://example.com
+
+# Authenticate with a SaaS provider (one-time, browser opens for OAuth)
+agentdom auth linear.app
+agentdom auth resend.com     # prompts for API key
+agentdom auth github.com     # device flow
+
+# Run a goal (AI-planned, auto-dispatched)
+agentdom goal "Create a high-priority bug in Linear titled 'Login crash on iOS'"
+
+# Dispatch a single intent directly
+agentdom intent issues.create --provider=linear.app --title="Login crash" --priority=1
+
+# Check what's in your wallet
+agentdom wallet list
+
+# Policy: approve/deny pending actions
+agentdom policy show
+agentdom approve <id>
+agentdom deny <id>
+
+# Memory: what happened in past sessions
+agentdom memory stats
+agentdom memory recall --provider=linear.app
 ```
 
-## What It Does
+---
 
-```
-Any Website → AgentDOM → Machine-Readable Schema + Human-Like Actions
-```
+## MCP Integration (Claude, Cursor, any MCP client)
 
-1. **Scans** any page → structured JSON schema (forms, buttons, links, intents)
-2. **Acts** like a human → real mouse events, keystrokes, form fills
-3. **Reasons** with AI → classifies element intents, plans multi-step workflows
-4. **Autonomous** → give a goal, agent does the rest
-
-## Integration with Every Major AI Platform
-
-| Platform | Integration | Command |
-|----------|-------------|---------|
-| **Anthropic (Claude)** | MCP Server | `npm run mcp` |
-| **OpenAI (GPT-4)** | Function Calling | `npm run openai "Sign up on example.com"` |
-| **Google (Gemini)** | Function Calling | `npm run gemini "Find Stripe pricing"` |
-| **Google A2A** | Agent-to-Agent Protocol | `npm run a2a` |
-| **Any Platform** | REST API | `npm run server` |
-| **Chrome** | Extension | Load `chrome-extension/` in `chrome://extensions` |
-| **Cursor/Windsurf** | MCP | Auto-configured in `~/.cursor/mcp.json` |
-
-## Usage
-
-### CLI — Interactive Mode
 ```bash
-agentdom https://stripe.com
-❯ scan          # Get page schema
-❯ forms         # List all forms
-❯ actions       # List all actions
-❯ click #btn    # Click an element
-❯ goal "Find the pricing"  # Autonomous mode
-```
+# Claude Code
+claude mcp add agentdom-desktop -- node $(npm root -g)/agentdom/desktop-mcp-server.js
 
-### CLI — Autonomous Mode
-```bash
-agentdom https://strollr.app --headless
-❯ goal Sign up with email test@ai.com
-# Agent types email, clicks submit, verifies success — zero human steps
-```
-
-### HTTP API
-```bash
-npm run server
-# Server starts at http://localhost:3700
-
-curl -X POST http://localhost:3700/browse \
-  -H 'Content-Type: application/json' \
-  -d '{"url": "https://example.com"}'
-
-curl -X POST http://localhost:3700/goal \
-  -H 'Content-Type: application/json' \
-  -d '{"objective": "Find the pricing", "url": "https://stripe.com"}'
-```
-
-### OpenAI Function Calling
-```bash
-OPENROUTER_API_KEY=sk-... node integrations/openai.js "Sign up on strollr.app with email test@ai.com"
-```
-
-### Google Gemini
-```bash
-OPENROUTER_API_KEY=sk-... node integrations/gemini.js "Find what Stripe charges per transaction"
-```
-
-### MCP (Claude Desktop / Cursor)
-Add to `~/.cursor/mcp.json` or Claude Desktop config:
-```json
+# claude_desktop_config.json
 {
   "mcpServers": {
     "agentdom": {
       "command": "node",
-      "args": ["/path/to/agent-schema/mcp-server.js"],
-      "env": { "OPENROUTER_API_KEY": "sk-..." }
+      "args": ["$(npm root -g)/agentdom/desktop-mcp-server.js"]
     }
   }
 }
 ```
 
-### Google A2A Protocol
-```bash
-OPENROUTER_API_KEY=sk-... npm run a2a
-# Agent Card: http://localhost:3800/.well-known/agent.json
+Once connected, the agent gets **50+ tools automatically** — no configuration:
 
-# Other agents can send tasks:
-curl -X POST http://localhost:3800/tasks/send \
-  -H 'Content-Type: application/json' \
-  -d '{"message": {"parts": [{"type": "text", "text": "Find Stripe pricing"}]}}'
-```
+| Tool | What it does |
+|------|-------------|
+| `dispatch_intent` | Execute any semantic intent on any connected provider |
+| `wallet_auth` | Connect a SaaS provider via OAuth/API key |
+| `wallet_list` | List all authenticated providers |
+| `policy_list` | Show current permission policy |
+| `policy_approve` | Approve a pending action |
+| `memory_recall` | Search past agent runs |
+| `clickElement` | Click any UI element by label (no selectors) |
+| `typeText` | Type into any input field |
+| `observe` | Read desktop state, clipboard, running apps |
+| `scan_app` | Discover all capabilities of a running app |
+| ... | 40+ more covering web, desktop, system |
 
-### Chrome Extension
-1. Open `chrome://extensions`
-2. Enable "Developer mode"
-3. Click "Load unpacked" → select `chrome-extension/` folder
-4. Click the extension icon on any page to scan
+---
 
-## Architecture
+## The Standard: `.well-known/agentdom.json`
 
-```
-┌─────────────────────────────────────────────────┐
-│              AI Agent (any platform)             │
-│  OpenAI / Gemini / Claude / Custom              │
-└─────────┬────────┬────────┬────────┬────────────┘
-          │        │        │        │
-    ┌─────▼──┐ ┌──▼───┐ ┌──▼──┐ ┌──▼──────┐
-    │OpenAI  │ │Gemini│ │ MCP │ │HTTP API │
-    │Adapter │ │Adapt.│ │     │ │         │
-    └────┬───┘ └──┬───┘ └──┬──┘ └──┬──────┘
-         └────────┴────────┴───────┘
-                       │
-              ┌────────▼────────┐
-              │  Browser Engine │ ← Session Pool + Stealth
-              └────────┬────────┘
-                       │
-              ┌────────▼────────┐
-              │  agentdom.js    │ ← In-page runtime
-              │  scan() + act() │
-              └─────────────────┘
-```
+Like `robots.txt` for crawlers, vendors publish a machine-readable capability manifest:
 
-## AIDL Schema (v3.0)
-Every page is converted to this machine-readable format:
 ```json
 {
-  "_aidl": "3.0.0",
-  "page": {
-    "meta": { "title": "...", "url": "...", "description": "..." },
-    "forms": [{
-      "id": "loginForm",
-      "intent": "authenticate",
-      "fields": [{ "name": "email", "type": "email", "selector": "#email" }],
-      "submitButton": { "selector": "#submit", "label": "Log in" }
-    }],
-    "actions": [{
-      "label": "Sign up", "selector": "#signup-btn",
-      "intent": "register", "tag": "button"
-    }]
+  "version": "1.0",
+  "host": "linear.app",
+  "auth": { "method": "oauth2", "auth_url": "...", "token_url": "..." },
+  "capabilities": [
+    {
+      "intent": "issues.create",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "args": { "title": { "type": "string", "required": true } },
+      "side_effects": ["external"]
+    }
+  ]
+}
+```
+
+**Vendors who haven't published this yet?** AgentDOM automatically generates polyfill manifests from their public OpenAPI spec and hosts them at `agentdom.dev/manifests/{host}.json`. **Zero vendor cooperation required.**
+
+---
+
+## Supported Providers (Polyfill Manifests)
+
+| Provider | Auth | Key Intents |
+|----------|------|-------------|
+| `linear.app` | OAuth2 PKCE | issues.create/list/update, teams.list, comments.create |
+| `resend.com` | API Key | emails.send, domains.list |
+| `cal.com` | OAuth2 PKCE | bookings.create/list/cancel, availability.list |
+| `github.com` | Device Flow | 800+ operations auto-compiled from OpenAPI |
+| `stripe.com` | API Key | 440+ operations |
+| ... more every week | | |
+
+---
+
+## Auth Wallet — Tokens Never Leave Your Machine
+
+```bash
+agentdom auth hubspot.com
+# → Opens browser → OAuth PKCE flow → Token stored in macOS Keychain
+# → All future calls use this token silently, auto-refreshed
+```
+
+**Unlike Composio or Zapier**, AgentDOM is local-first:
+- Tokens stored in OS Keychain (macOS/Windows/Linux)
+- No cloud proxy — 1 network hop instead of 2
+- Works fully offline (bundled manifests + cached tokens)
+- Open standard — self-hostable, no account required
+
+---
+
+## Policy Engine — Human-in-the-Loop When It Matters
+
+```json
+// ~/.agentdom/policy.json
+{
+  "per_class": {
+    "read":        "allow",
+    "write_local": "allow",
+    "send":        "prompt",    // emails need approval
+    "external":    "prompt",    // API writes need approval
+    "delete":      "deny",      // never auto-delete
+    "payment":     "deny"       // never auto-charge
   }
 }
 ```
 
-## Environment Variables
-| Variable | Purpose | Required |
-|----------|---------|----------|
-| `OPENROUTER_API_KEY` | AI intent inference & autonomous mode | For AI features |
-| `OPENROUTER_MODEL` | AI model (default: `google/gemini-2.0-flash-001`) | No |
-| `AGENTDOM_API_KEY` | HTTP API authentication | No |
-| `PORT` | HTTP server port (default: 3700) | No |
-| `A2A_PORT` | A2A server port (default: 3800) | No |
+When an action needs approval:
+```
+[AgentDOM Policy] Action requires approval.
+  Effects:  external
+  Intent:   contacts.create
+  Provider: hubspot.com
+  Run:  agentdom approve abc123   (or: agentdom deny abc123)
+```
+
+---
+
+## Surface Coverage
+
+| Surface | How | Status |
+|---------|-----|--------|
+| SaaS REST APIs | Keychain token + HTTP | ✅ |
+| GraphQL APIs | POST + auth | ✅ |
+| Web apps (browser) | Chrome DevTools Protocol | ✅ |
+| Shadow DOM, iframes | CDP traversal | ✅ |
+| React/Vue inputs | Native setter bypass | ✅ |
+| Electron apps | CDP + Accessibility API | ✅ |
+| macOS native apps | Accessibility API (AX) | ✅ |
+| CLI tools | Process bridge | ✅ |
+| Linux desktop | AT-SPI | 🔜 |
+| Windows desktop | UIAutomation | 🔜 |
+
+---
+
+## Architecture
+
+```
+Agent (Claude / GPT / LangGraph / Custom)
+    │  MCP (stdio/SSE)
+    ▼
+AgentDOM MCP Server (local process)
+    ├── Planner        plan → validate → execute → verify → replan
+    ├── Policy Engine  allow / prompt / deny per side-effect class
+    ├── Memory         cross-session episodic store
+    ├── Dispatch Router  intent → cheapest transport
+    │   ├── API Bridge    REST/GraphQL + Keychain token
+    │   ├── CDP Bridge    browser / Electron via Chrome DevTools
+    │   └── AX Bridge     macOS / desktop accessibility
+    └── Auth Wallet    OS Keychain + OAuth PKCE + auto-refresh
+```
+
+---
+
+## For Publishers: Publish Your Own Manifest
+
+```bash
+npx agentdom-publisher init --openapi=./openapi.json --host=api.myapp.com
+# → generates .well-known/agentdom.json
+# → deploy to https://api.myapp.com/.well-known/agentdom.json
+```
+
+Agents will instantly discover and use your product without any additional integration work. Display the AgentDOM Native badge to signal readiness.
+
+---
 
 ## License
-MIT
+
+MIT — free to use, self-host, and extend.
+
+---
+
+*AgentDOM is the foundation for the agentic economy. Agents need machine-readable software. We're building it.*
+
+**[agentdom.dev](https://agentdom.dev)** · [GitHub](https://github.com/RagavRida/agentdom) · [npm](https://www.npmjs.com/package/agentdom)

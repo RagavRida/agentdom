@@ -1,10 +1,12 @@
 {
   "name": "agentdom",
-  "version": "3.1.0",
-  "description": "Universal AI agent runtime. Gives agents structured, typed access to any software — web, desktop, CLI. No screenshots needed.",
+  "version": "3.2.0",
+  "description": "Universal AI agent protocol. Agents interact with any software — web, desktop, SaaS API, CLI — through a single semantic interface. No screenshots. No scraping.",
   "main": "agentdom.js",
+  "type": "module",
   "bin": {
-    "agentdom": "./cli.js"
+    "agentdom": "cli.js",
+    "agentdom-publisher": "tools/publisher.js"
   },
   "files": [
     "agentdom.js",
@@ -14,10 +16,14 @@
     "mcp-cli-server.js",
     "mcp-api-server.js",
     "agent-platform.js",
+    "lib/",
     "integrations/",
     "desktop-agent/",
     "compiler/",
     "commands/",
+    "manifests/",
+    "tools/",
+    "docs/",
     "LICENSE",
     "README.md"
   ],
@@ -44,25 +50,44 @@
     "build:all": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64,node18-win-x64,node18-linux-x64 --out-path dist/"
   },
   "pkg": {
-    "assets": ["agentdom.js", "integrations/**/*", "mcp-server.js"],
-    "scripts": ["cli.js"]
+    "assets": [
+      "agentdom.js",
+      "integrations/**/*",
+      "mcp-server.js"
+    ],
+    "scripts": [
+      "cli.js"
+    ]
   },
   "keywords": [
-    "ai-agent", "browser-automation", "web-agent", "mcp", "openai", "gemini",
-    "function-calling", "autonomous", "a2a", "agent-to-agent", "agentdom",
-    "desktop-automation", "ai-native", "schema", "universal-runtime"
+    "ai-agent",
+    "browser-automation",
+    "web-agent",
+    "mcp",
+    "openai",
+    "gemini",
+    "function-calling",
+    "autonomous",
+    "a2a",
+    "agent-to-agent",
+    "agentdom",
+    "desktop-automation",
+    "ai-native",
+    "schema",
+    "universal-runtime"
   ],
   "author": "AgentDOM",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/RagavRida/agentdom"
+    "url": "git+https://github.com/RagavRida/agentdom.git"
   },
   "homepage": "https://getagentdom.com",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
+    "keytar": "^7.9.0",
     "uuid": "^11.1.0"
   },
   "optionalDependencies": {

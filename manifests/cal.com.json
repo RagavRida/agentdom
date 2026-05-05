@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "host": "cal.com",
+  "name": "Cal.com",
+  "description": "AgentDOM polyfill manifest for Cal.com — scheduling and availability.",
+  "generated_at": "2026-05-05T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "auth_url": "https://app.cal.com/oauth/authorize",
+    "token_url": "https://app.cal.com/oauth/token",
+    "scopes": ["READ_BOOKING", "WRITE_BOOKING", "READ_PROFILE"]
+  },
+  "capabilities": [
+    {
+      "intent": "bookings.list",
+      "description": "List all bookings.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cal.com/v1/bookings",
+      "args": {
+        "status": { "type": "string", "required": false, "description": "Filter by status (ACCEPTED, PENDING, CANCELLED)" },
+        "userId": { "type": "number", "required": false, "description": "Filter by user ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "bookings.create",
+      "description": "Create a new booking.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.cal.com/v1/bookings",
+      "args": {
+        "eventTypeId": { "type": "number", "required": true, "description": "ID of the event type" },
+        "start": { "type": "string", "required": true, "description": "Start time (ISO 8601)" },
+        "end": { "type": "string", "required": true, "description": "End time (ISO 8601)" },
+        "responses": { "type": "object", "required": true, "description": "Attendee info { name, email, location, notes }" },
+        "timeZone": { "type": "string", "required": true, "description": "Timezone of the attendee" },
+        "language": { "type": "string", "required": false, "description": "Language (e.g. en)" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "bookings.cancel",
+      "description": "Cancel an existing booking.",
+      "transport": "api",
+      "method": "DELETE",
+      "endpoint": "https://api.cal.com/v1/bookings/{id}/cancel",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Booking UID" },
+        "reason": { "type": "string", "required": false, "description": "Cancellation reason" }
+      },
+      "side_effects": ["external", "delete"],
+      "cost": 1
+    },
+    {
+      "intent": "availability.list",
+      "description": "Get available slots for a user/event type.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cal.com/v1/slots",
+      "args": {
+        "eventTypeId": { "type": "number", "required": true, "description": "Event Type ID" },
+        "startTime": { "type": "string", "required": true, "description": "Start date (YYYY-MM-DD)" },
+        "endTime": { "type": "string", "required": true, "description": "End date (YYYY-MM-DD)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "event_types.list",
+      "description": "List all event types (e.g., 30 Min Meeting).",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cal.com/v1/event-types",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "users.me",
+      "description": "Get the current authenticated user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cal.com/v1/users/me",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.cal.com/v1",
+    "docs": "https://cal.com/docs/enterprise-features/api"
+  }
+}

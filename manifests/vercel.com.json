@@ -1,0 +1,113 @@
+{
+  "version": "1.0",
+  "host": "api.vercel.com",
+  "name": "Vercel",
+  "description": "AgentDOM polyfill for Vercel — deployments, projects, domains, and env vars.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "key_env": "VERCEL_TOKEN"
+  },
+  "capabilities": [
+    {
+      "intent": "deployments.list",
+      "description": "List all deployments for the authenticated account.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.vercel.com/v6/deployments",
+      "args": {
+        "limit": { "type": "number", "required": false, "description": "Max results" },
+        "projectId": { "type": "string", "required": false, "description": "Filter by project" },
+        "state": { "type": "string", "required": false, "description": "QUEUED | BUILDING | READY | ERROR | CANCELED" }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "deployments.get",
+      "description": "Get a deployment by ID or URL.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.vercel.com/v13/deployments/{idOrUrl}",
+      "args": {
+        "idOrUrl": { "type": "string", "required": true, "description": "Deployment ID or URL" }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "deployments.create",
+      "description": "Trigger a new deployment from a Git repo or files.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.vercel.com/v13/deployments",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Project name" },
+        "gitSource": { "type": "object", "required": false, "description": "{ type: github, repoId, ref }" },
+        "target": { "type": "string", "required": false, "description": "production | preview" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "projects.list",
+      "description": "List all Vercel projects.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.vercel.com/v9/projects",
+      "args": {
+        "limit": { "type": "number", "required": false },
+        "search": { "type": "string", "required": false }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "projects.create",
+      "description": "Create a new Vercel project.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.vercel.com/v9/projects",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Project name" },
+        "framework": { "type": "string", "required": false, "description": "nextjs | vite | create-react-app | etc." },
+        "gitRepository": { "type": "object", "required": false, "description": "{ type: github, repo: owner/name }" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "domains.list",
+      "description": "List all domains in the account.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.vercel.com/v5/domains",
+      "args": { "limit": { "type": "number", "required": false } },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "env_vars.list",
+      "description": "List environment variables for a project.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.vercel.com/v9/projects/{projectId}/env",
+      "args": {
+        "projectId": { "type": "string", "required": true },
+        "decrypt": { "type": "boolean", "required": false, "description": "Return decrypted values" }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "env_vars.create",
+      "description": "Add an environment variable to a project.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.vercel.com/v10/projects/{projectId}/env",
+      "args": {
+        "projectId": { "type": "string", "required": true },
+        "key": { "type": "string", "required": true, "description": "Variable name" },
+        "value": { "type": "string", "required": true, "description": "Variable value" },
+        "type": { "type": "string", "required": true, "description": "plain | secret | encrypted | sensitive" },
+        "target": { "type": "array", "required": true, "description": "[ production, preview, development ]" }
+      },
+      "side_effects": ["external"], "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 8,
+    "api_type": "rest",
+    "base_url": "https://api.vercel.com",
+    "docs": "https://vercel.com/docs/rest-api"
+  }
+}

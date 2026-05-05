@@ -9,6 +9,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // FIX: Stealth plugin to evade bot detection
 puppeteerExtra.use(StealthPlugin());
@@ -243,6 +244,8 @@ async function main() {
   const url = args.find(a => a.startsWith('http'));
   const headless = args.includes('--headless');
   const noAI = args.includes('--no-ai');
+  const profileArg = args.find(a => a.startsWith('--profile'));
+  const profileName = profileArg?.includes('=') ? profileArg.split('=')[1] : (profileArg ? 'default' : null);
   const vp = (args.find(a => a.startsWith('--viewport='))?.split('=')[1] || '1280x800').split('x').map(Number);
 
   console.log('');
@@ -258,10 +261,20 @@ async function main() {
 
   // Launch browser with stealth
   logI('Launching stealth browser...');
-  const browser = await puppeteerExtra.launch({
+  const launchOpts = {
     headless, defaultViewport: { width: vp[0], height: vp[1] },
     args: ['--no-sandbox', '--disable-setuid-sandbox', `--window-size=${vp[0]},${vp[1] + 100}`],
-  });
+  };
+
+  // Persistent profile: cookies/localStorage survive across sessions
+  if (profileName) {
+    const profileDir = path.join(os.homedir(), '.agentdom', 'profiles', profileName.replace(/[^a-zA-Z0-9_-]/g, '_'));
+    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true });
+    launchOpts.userDataDir = profileDir;
+    logS(`Profile: ${profileName} (${profileDir})`);
+  }
+
+  const browser = await puppeteerExtra.launch(launchOpts);
   const page = await browser.newPage();
 
   // Inject AgentDOM on every navigation
@@ -542,6 +555,59 @@ async function main() {
           const c = await page.cookies(); console.log(JSON.stringify(c, null, 2)); break;
         }
 
+        // Checkpoints — save/restore multi-page workflow state
+        case 'checkpoint': case 'save': {
+          if (!rest) { logE('Usage: checkpoint <name>'); break; }
+          logI(`Saving checkpoint "${rest}"...`);
+          const cpDir = path.join(os.homedir(), '.agentdom', 'checkpoints');
+          if (!fs.existsSync(cpDir)) fs.mkdirSync(cpDir, { recursive: true });
+          const cookies = await page.cookies();
+          const state = await page.evaluate(() => ({
+            url: location.href, title: document.title,
+            scroll: { x: scrollX, y: scrollY },
+            localStorage: (() => { try { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; } catch { return null; } })(),
+          }));
+          const cp = { name: rest, savedAt: new Date().toISOString(), cookies, ...state };
+          const cpFile = path.join(cpDir, `${rest.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+          const tmp = cpFile + '.tmp';
+          fs.writeFileSync(tmp, JSON.stringify(cp, null, 2));
+          fs.renameSync(tmp, cpFile);
+          logS(`Checkpoint "${rest}" saved (${cpFile})`);
+          break;
+        }
+        case 'restore': {
+          if (!rest) { logE('Usage: restore <name>'); break; }
+          const cpDir2 = path.join(os.homedir(), '.agentdom', 'checkpoints');
+          const cpFile2 = path.join(cpDir2, `${rest.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+          if (!fs.existsSync(cpFile2)) { logE(`Checkpoint "${rest}" not found`); break; }
+          logI(`Restoring checkpoint "${rest}"...`);
+          const cp2 = JSON.parse(fs.readFileSync(cpFile2, 'utf-8'));
+          if (cp2.cookies?.length) await page.setCookie(...cp2.cookies);
+          await page.goto(cp2.url, { waitUntil: 'networkidle2', timeout: 30000 });
+          if (cp2.localStorage) {
+            await page.evaluate((data) => {
+              try { for (const [k, v] of Object.entries(data)) localStorage.setItem(k, v); } catch {}
+            }, cp2.localStorage);
+          }
+          if (cp2.scroll) await page.evaluate(({ x, y }) => window.scrollTo(x, y), cp2.scroll);
+          logS(`Restored "${rest}" → ${cp2.url} (saved ${cp2.savedAt})`);
+          break;
+        }
+        case 'checkpoints': {
+          const cpDir3 = path.join(os.homedir(), '.agentdom', 'checkpoints');
+          if (!fs.existsSync(cpDir3)) { logD('No checkpoints saved yet.'); break; }
+          const files = fs.readdirSync(cpDir3).filter(f => f.endsWith('.json'));
+          if (!files.length) { logD('No checkpoints saved yet.'); break; }
+          log('  Saved checkpoints:', C.blue);
+          for (const f of files) {
+            try {
+              const d = JSON.parse(fs.readFileSync(path.join(cpDir3, f), 'utf-8'));
+              log(`    ${d.name} → ${d.url} (${d.savedAt})`, C.gray);
+            } catch { log(`    ${f} (corrupt)`, C.red); }
+          }
+          break;
+        }
+
         // Help
         case 'help': {
           console.log('');
@@ -561,8 +627,12 @@ async function main() {
           logD('  scroll <px> | scrollto <sel> | top | bottom');
           log('  ╭─── Wait ────────────────────────────────╮', C.pink);
           logD('  wait <sel|ms> | waittext "text" | waitnav');
-          log('  ╭─── Utility ─────────────────────────────╮', C.gray);
+          log('  ╭─── Utility ─────────────────────╮', C.gray);
           logD('  screenshot | fullshot | eval <js> | run <file> | cookies | exit');
+          log('  ╭─── Checkpoints ──────────────────╮', C.blue);
+          logD('  checkpoint <name>   Save current state (URL, cookies, scroll)');
+          logD('  restore <name>      Restore a saved checkpoint');
+          logD('  checkpoints         List all saved checkpoints');
           console.log('');
           break;
         }
@@ -916,14 +986,67 @@ if (args[0] === 'init') {
   // Synchronous scaffolder — short-circuit before puppeteer or anything heavy.
   require('./commands/init').run(args.slice(1));
 } else if (args[0] === 'launch') {
-  // Async — relaunches an Electron app with CDP exposed. Skips puppeteer.
   require('./commands/launch').run(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
 } else if (args[0] === 'sessions') {
   require('./commands/sessions').run(args.slice(1));
 } else if (args[0] === 'auth') {
   require('./commands/auth').run(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
+
+// ── Policy commands ─────────────────────────────────────────────────────────
+} else if (args[0] === 'approve') {
+  const id = args[1];
+  if (!id) { console.error('Usage: agentdom approve <id>'); process.exit(1); }
+  const r = require('./lib/policy').approve(id);
+  console.log(r.ok ? `✓ Approved ${id}` : `✗ ${r.error}`);
+
+} else if (args[0] === 'deny') {
+  const id = args[1];
+  if (!id) { console.error('Usage: agentdom deny <id>'); process.exit(1); }
+  const r = require('./lib/policy').deny(id);
+  console.log(r.ok ? `✓ Denied ${id}` : `✗ ${r.error}`);
+
+} else if (args[0] === 'policy') {
+  const pol = require('./lib/policy');
+  const sub = args[1];
+  if (!sub || sub === 'show') {
+    console.log(JSON.stringify(pol.getPolicy(), null, 2));
+    const pending = pol.listPending();
+    if (pending.length) {
+      console.log(`\n${pending.length} pending approval(s):`);
+      pending.forEach(p => console.log(`  ${p.id}  ${p.intent || '—'}  ${p.provider || '—'}  (${new Date(p.created).toLocaleTimeString()})`));
+    }
+  } else if (sub === 'pending') {
+    const pending = pol.listPending();
+    if (!pending.length) { console.log('No pending approvals.'); }
+    else pending.forEach(p => console.log(JSON.stringify(p, null, 2)));
+  } else {
+    console.error('Usage: agentdom policy [show|pending]');
+  }
+
+// ── Memory commands ─────────────────────────────────────────────────────────
+} else if (args[0] === 'memory') {
+  const mem = require('./lib/memory');
+  const sub = args[1];
+  if (!sub || sub === 'stats') {
+    console.log(JSON.stringify(mem.stats(), null, 2));
+  } else if (sub === 'recall') {
+    // agentdom memory recall [--provider=X] [--intent=Y] [--outcome=Z] [--limit=N]
+    const get = (flag) => args.find(a => a.startsWith(`--${flag}=`))?.split('=')[1];
+    const episodes = mem.recall({
+      provider: get('provider'),
+      intent:   get('intent'),
+      outcome:  get('outcome'),
+      limit:    parseInt(get('limit') || '20', 10),
+    });
+    if (!episodes.length) { console.log('No matching episodes.'); }
+    else episodes.forEach(e => console.log(JSON.stringify(e)));
+  } else {
+    console.error('Usage: agentdom memory [stats|recall [--provider=X] [--intent=Y] [--outcome=Z] [--limit=N]]');
+  }
+
 } else if (args.includes('--desktop') || args.includes('-d')) {
   desktopMode().catch(e => { console.error('Fatal:', e); process.exit(1); });
 } else {
   main().catch(e => { console.error('Fatal:', e); process.exit(1); });
 }
+

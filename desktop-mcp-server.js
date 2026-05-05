@@ -18,6 +18,8 @@ const electronBridge = require('./desktop-agent/electron-bridge');
 const launchCmd = require('./commands/launch');
 const discovery = require('./discovery');
 const authWallet = require('./commands/auth');
+const policy = require('./lib/policy');
+const memory = require('./lib/memory');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -264,6 +266,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: { type: 'object', properties: { category: { type: 'string', description: 'Filter by category' } } },
     },
     {
+      name: 'policy_list',
+      description: 'Show the current permission policy (~/.agentdom/policy.json) and any pending approval requests. Use before dispatch_intent to understand what requires human approval.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'policy_approve',
+      description: 'Approve a pending action that was blocked by the policy prompt flow.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Pending action id (from policy_list).' } }, required: ['id'] },
+    },
+    {
+      name: 'policy_deny',
+      description: 'Deny a pending action.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Pending action id (from policy_list).' } }, required: ['id'] },
+    },
+    {
+      name: 'memory_recall',
+      description: 'Search episodic memory for past agent runs. Useful for understanding what worked/failed for a provider+intent pair in previous sessions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          provider: { type: 'string', description: 'Filter by provider host (e.g. hubspot.com).' },
+          intent:   { type: 'string', description: 'Filter by intent id (e.g. contacts.create).' },
+          outcome:  { type: 'string', description: 'success | failure | partial' },
+          limit:    { type: 'number', description: 'Max episodes to return (default 10).' },
+        },
+      },
+    },
+    {
+      name: 'memory_stats',
+      description: 'Show episodic memory statistics: total episodes, breakdown by outcome and provider.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
       name: 'observe',
       description: 'Observe the current state of the desktop: running apps, active app, clipboard, system info, time.',
       inputSchema: { type: 'object', properties: {} },
@@ -327,7 +362,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(result);
       }
       if (name === 'wallet_list') {
-        return ok({ wallet_path: authWallet.WALLET_FILE, providers: authWallet.tokens() });
+        return ok({ wallet_path: authWallet.WALLET_FILE, providers: await authWallet.tokens() });
       }
       if (name === 'wallet_auth') {
         if (!args?.provider) {
@@ -430,6 +465,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: 'text', text: JSON.stringify({ launched, attachError: result }, null, 2) }], isError: true };
         }
         return ok({ launched: { app: launched.app, port: launched.port, pid: launched.pid, reused: !!launched.reused }, ...result });
+      }
+      if (name === 'policy_list') {
+        return ok({ policy: policy.getPolicy(), pending: policy.listPending() });
+      }
+      if (name === 'policy_approve') {
+        if (!args?.id) return { content: [{ type: 'text', text: 'policy_approve requires { id }' }], isError: true };
+        return ok(policy.approve(args.id));
+      }
+      if (name === 'policy_deny') {
+        if (!args?.id) return { content: [{ type: 'text', text: 'policy_deny requires { id }' }], isError: true };
+        return ok(policy.deny(args.id));
+      }
+      if (name === 'memory_recall') {
+        return ok(memory.recall({ provider: args?.provider, intent: args?.intent, outcome: args?.outcome, limit: args?.limit || 10 }));
+      }
+      if (name === 'memory_stats') {
+        return ok(memory.stats());
       }
       if (name === 'discover') {
         return ok(platform.discover(args?.category));
@@ -755,7 +807,7 @@ async function dispatchIntent({ intent, args = {}, provider: forcedProvider, dry
   const candidates = [];
 
   // Well-known: walk the wallet for any provider that already advertises this intent.
-  for (const entry of authWallet.tokens()) {
+  for (const entry of await authWallet.tokens()) {
     const d = await authWallet.discover(entry.provider).catch(() => null);
     const cap = d?.manifest?.capabilities?.find(c => c.intent === intent);
     if (!cap) continue;
@@ -812,12 +864,23 @@ async function dispatchIntent({ intent, args = {}, provider: forcedProvider, dry
     };
   }
 
-  // 3. Dispatch.
+  // 3. Policy enforcement — check before any external side-effect.
+  const effects = chosen.capability?.side_effects ||
+    (chosen.capability?.transport === 'api' ? ['external'] :
+     chosen.capability?.transport === 'ui'  ? ['external'] : ['read']);
+  const policyResult = await policy.check(effects, { intent, provider: chosen.provider });
+  if (policyResult.decision === 'deny') {
+    return { error: policyResult.error, hint: policyResult.hint, policy_blocked: true, intent, provider: chosen.provider };
+  }
+
+  // 4. Dispatch.
   const cap = chosen.capability;
   if (chosen.source === 'well-known' && cap.transport === 'api') {
     const tok = await authWallet.token(chosen.provider);
     if (tok.error) return { error: tok.error, hint: `Run wallet_auth({ provider: "${chosen.provider}" }).` };
-    return await dispatchHttpCapability({ provider: chosen.provider, capability: cap, args, token: tok });
+    const result = await dispatchHttpCapability({ provider: chosen.provider, capability: cap, args, token: tok });
+    memory.remember({ type: 'intent_exec', intent, provider: chosen.provider, outcome: result.ok ? 'success' : 'failure' });
+    return result;
   }
 
   if (chosen.source === 'bundled-manifest') {
@@ -873,6 +936,7 @@ async function shutdown(signal) {
   console.error(`[AgentDOM Desktop] ${signal} received, shutting down...`);
   try { await disposeElectronSession(); } catch (_) {}
   try { await server.close().catch(() => {}); } catch (_) {}
+  try { releaseLock(); } catch (_) {}
   process.exit(0);
 }
 
@@ -886,8 +950,39 @@ process.on('unhandledRejection', (e) => {
   console.error('[AgentDOM Desktop] Unhandled rejection:', e);
 });
 
+// ── Process lock — reject duplicate launches ──
+const os = require('os');
+const LOCK_FILE = require('path').join(os.homedir(), '.agentdom', '.lock');
+
+function acquireLock() {
+  const dir = require('path').dirname(LOCK_FILE);
+  if (!require('fs').existsSync(dir)) require('fs').mkdirSync(dir, { recursive: true });
+  // Check for stale lock
+  if (require('fs').existsSync(LOCK_FILE)) {
+    try {
+      const pid = Number(require('fs').readFileSync(LOCK_FILE, 'utf-8').trim());
+      if (pid && pid !== process.pid) {
+        try { process.kill(pid, 0); /* alive */ } catch { /* stale — remove */ require('fs').unlinkSync(LOCK_FILE); }
+        if (require('fs').existsSync(LOCK_FILE)) {
+          console.error(`[AgentDOM Desktop] Another instance is running (pid ${pid}). Remove ${LOCK_FILE} if this is stale.`);
+          process.exit(1);
+        }
+      }
+    } catch { /* corrupt lock, remove */ try { require('fs').unlinkSync(LOCK_FILE); } catch {} }
+  }
+  require('fs').writeFileSync(LOCK_FILE, String(process.pid));
+}
+
+function releaseLock() {
+  try {
+    const content = require('fs').readFileSync(LOCK_FILE, 'utf-8').trim();
+    if (Number(content) === process.pid) require('fs').unlinkSync(LOCK_FILE);
+  } catch (_) {}
+}
+
 // ── Start ──
 async function main() {
+  acquireLock();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const caps = platform.discover();
@@ -896,4 +991,4 @@ async function main() {
   console.error(`Categories: ${caps.categories.join(', ')}`);
 }
 
-main().catch(e => { console.error('Fatal:', e); process.exit(1); });
+main().catch(e => { console.error('Fatal:', e); releaseLock(); process.exit(1); });

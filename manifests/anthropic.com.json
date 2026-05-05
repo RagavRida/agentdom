@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "host": "api.anthropic.com",
+  "name": "Anthropic Claude",
+  "description": "AgentDOM polyfill for Anthropic API — Claude messages and models.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "x-api-key",
+    "key_format": "{token}",
+    "key_env": "ANTHROPIC_API_KEY"
+  },
+  "capabilities": [
+    {
+      "intent": "messages.create",
+      "description": "Send a message to Claude and get a response.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "headers": { "anthropic-version": "2023-06-01" },
+      "args": {
+        "model": { "type": "string", "required": true, "description": "Model ID (e.g. claude-opus-4-5, claude-sonnet-4-5)" },
+        "messages": { "type": "array", "required": true, "description": "Array of { role: user|assistant, content: string } messages" },
+        "max_tokens": { "type": "number", "required": true, "description": "Maximum tokens to generate" },
+        "system": { "type": "string", "required": false, "description": "System prompt" },
+        "temperature": { "type": "number", "required": false, "description": "Sampling temperature 0-1" },
+        "stream": { "type": "boolean", "required": false }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "models.list",
+      "description": "List all available Anthropic models.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.anthropic.com/v1/models",
+      "headers": { "anthropic-version": "2023-06-01" },
+      "args": {},
+      "side_effects": ["read"], "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 2,
+    "api_type": "rest",
+    "base_url": "https://api.anthropic.com/v1",
+    "docs": "https://docs.anthropic.com/en/api"
+  }
+}

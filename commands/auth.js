@@ -28,6 +28,9 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { atomicWrite, fetchRetry } = require('../lib/resilience');
+const keychain = require('../lib/keychain');
+const { pkceAuth, OAUTH_REGISTRY } = require('../lib/oauth-pkce');
 
 const WALLET_DIR = path.join(os.homedir(), '.agentdom');
 const WALLET_FILE = path.join(WALLET_DIR, 'wallet.json');
@@ -54,7 +57,7 @@ function readWallet() {
 
 function writeWallet(w) {
   ensureDir();
-  fs.writeFileSync(WALLET_FILE, JSON.stringify(w, null, 2), { mode: 0o600 });
+  atomicWrite(WALLET_FILE, w, { mode: 0o600 });
 }
 
 function setProvider(host, entry) {
@@ -83,16 +86,13 @@ async function discover(provider, opts = {}) {
   const host = normalizeHost(provider);
   const url = `https://${host}${WELL_KNOWN_PATH}`;
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), opts.timeoutMs || 5000);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(t);
+    const res = await fetchRetry(url, {}, { timeoutMs: opts.timeoutMs || 5000, retries: 2 });
     if (!res.ok) return { error: `${url} returned ${res.status}`, hint: 'Vendor has not published an agentdom manifest yet.' };
     const manifest = await res.json();
     if (!manifest.agentdom) return { error: 'Manifest missing required "agentdom" version field.', manifest };
     return { manifest, source_url: url };
   } catch (e) {
-    return { error: e.message, hint: `Could not reach ${url}.` };
+    return { error: e.message, hint: `Could not reach ${url} (retried 3x).` };
   }
 }
 
@@ -231,11 +231,11 @@ async function refreshOauthToken(host) {
     refresh_token: entry.refresh_token,
     client_id: entry.client_id,
   });
-  const res = await fetch(entry.token_url, {
+  const res = await fetchRetry(entry.token_url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
     body,
-  });
+  }, { retries: 2, timeoutMs: 8000 });
   if (!res.ok) return null;
   const tok = await res.json();
   if (!tok.access_token) return null;
@@ -279,16 +279,37 @@ async function apiKeyFlow({ host, manifest, key }) {
 async function auth({ provider, intents = [], clientId, clientSecret, key, force = false } = {}) {
   if (!provider) throw new Error('auth requires { provider }');
   const host = normalizeHost(provider);
+
+  // 1. Check Keychain first (faster than file)
   if (!force) {
+    const kToken = await keychain.getToken(host);
+    if (kToken && !keychain.isExpired(kToken)) {
+      return { reused: true, ...sanitize(kToken), provider: host, storage: 'keychain' };
+    }
+    // Check file-based wallet as fallback
     const existing = getProvider(host);
     if (existing) {
       if (existing.method === 'oauth2' && existing.expires_at && new Date(existing.expires_at) > new Date()) {
-        return { reused: true, ...sanitize(existing), provider: host };
+        return { reused: true, ...sanitize(existing), provider: host, storage: 'wallet-file' };
       }
-      if (existing.method !== 'oauth2') return { reused: true, ...sanitize(existing), provider: host };
+      if (existing.method !== 'oauth2') return { reused: true, ...sanitize(existing), provider: host, storage: 'wallet-file' };
     }
   }
 
+  // 2. Try PKCE engine first (handles PKCE, device flow, API key interactively)
+  const pkceConfig = OAUTH_REGISTRY[host];
+  if (pkceConfig) {
+    try {
+      const token = await pkceAuth(host, { forceReauth: force, config: pkceConfig });
+      // Mirror to file wallet for backwards compat
+      setProvider(host, token);
+      return { provider: host, ...sanitize(token), storage: await keychain.storageBackend() };
+    } catch (e) {
+      console.error(`[AgentDOM] pkceAuth failed for ${host}: ${e.message} — trying manifest flow`);
+    }
+  }
+
+  // 3. Fallback: discover manifest and use legacy flow
   const d = await discover(host);
   if (d.error) throw new Error(`discover ${host}: ${d.error}`);
   const m = d.manifest;
@@ -299,13 +320,15 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     return { provider: host, method, no_auth_required: true };
   }
   if (method === 'oauth2') {
-    clientId = clientId || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
+    clientId = clientId || m.auth.client_id || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
     clientSecret = clientSecret || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_SECRET`];
     const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents });
+    await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'api_key') {
     const entry = await apiKeyFlow({ host, manifest: m, key });
+    await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'session_cookie') {
@@ -330,6 +353,32 @@ function sanitize(entry) {
 
 async function token(provider) {
   const host = normalizeHost(provider);
+
+  // 1. Keychain (preferred — faster + more secure)
+  const kToken = await keychain.getToken(host);
+  if (kToken) {
+    if (!keychain.isExpired(kToken)) {
+      if (kToken.method === 'oauth2')  return { provider: host, method: 'oauth2',  access_token: kToken.access_token,  scopes: kToken.scope };
+      if (kToken.method === 'api_key') return { provider: host, method: 'api_key', key: kToken.key, header: kToken.header, format: kToken.format };
+      return { provider: host, method: kToken.method };
+    }
+    // Expired — try refresh via keychain token
+    if (kToken.refresh_token) {
+      try {
+        const pkceConfig = OAUTH_REGISTRY[host];
+        if (pkceConfig) {
+          const { refreshToken, scheduleRefresh } = require('../lib/oauth-pkce');
+          const refreshed = await refreshToken(host, kToken, pkceConfig);
+          scheduleRefresh(host, refreshed, pkceConfig);
+          return { provider: host, method: 'oauth2', access_token: refreshed.access_token, scopes: refreshed.scope };
+        }
+      } catch (e) {
+        console.error(`[token] refresh failed for ${host}: ${e.message}`);
+      }
+    }
+  }
+
+  // 2. File wallet fallback
   let entry = getProvider(host);
   if (!entry) return { error: `No auth for ${host}. Call auth({ provider: "${host}" }) first.` };
   if (entry.method === 'oauth2') {
@@ -347,12 +396,19 @@ async function token(provider) {
 
 // ── Listing + revocation ────────────────────────────────────────────────────
 
-function tokens() {
-  const w = readWallet();
-  return Object.entries(w.providers).map(([host, e]) => ({
-    provider: host,
-    ...sanitize(e),
-  }));
+async function tokens() {
+  // Merge keychain + file providers
+  const keychainProviders = await keychain.listProviders();
+  const fileProviders     = Object.keys(readWallet().providers || {});
+  const all = [...new Set([...keychainProviders, ...fileProviders])];
+  const results = [];
+  for (const host of all) {
+    const kToken = await keychain.getToken(host);
+    const fEntry = getProvider(host);
+    const entry  = kToken || fEntry;
+    if (entry) results.push({ provider: host, ...sanitize(entry), expired: kToken ? keychain.isExpired(kToken) : false });
+  }
+  return results;
 }
 
 function revoke(provider) {

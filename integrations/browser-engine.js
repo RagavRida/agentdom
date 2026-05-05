@@ -1,16 +1,30 @@
 /**
  * AgentDOM — Shared Browser Engine
  * Reusable Puppeteer session manager for all integrations.
+ *
+ * Supports persistent profiles (--profile flag) so cookies, localStorage,
+ * and login state survive across CLI sessions. Also adds checkpoint
+ * save/restore for multi-page agent workflows.
  */
 
 const puppeteerExtra = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 puppeteerExtra.use(StealthPlugin());
 
 const AGENTDOM_SCRIPT = fs.readFileSync(path.join(__dirname, '..', 'agentdom.js'), 'utf-8');
+
+// ── Profile + checkpoint directory ──────────────────────────────────────────
+const AGENTDOM_DIR = path.join(os.homedir(), '.agentdom');
+const PROFILES_DIR = path.join(AGENTDOM_DIR, 'profiles');
+const CHECKPOINTS_DIR = path.join(AGENTDOM_DIR, 'checkpoints');
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
 
 class BrowserSession {
   constructor(id, opts = {}) {
@@ -20,14 +34,26 @@ class BrowserSession {
     this.opts = { headless: true, viewport: { width: 1280, height: 800 }, ...opts };
     this.createdAt = Date.now();
     this.lastUsed = Date.now();
+    this.profileDir = null;
   }
 
   async init() {
-    this.browser = await puppeteerExtra.launch({
+    const launchOpts = {
       headless: this.opts.headless,
       defaultViewport: this.opts.viewport,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    };
+
+    // Persistent profile: reuse Chrome user-data-dir across sessions so
+    // cookies, localStorage, and login state survive restarts.
+    if (this.opts.profile) {
+      const profileName = typeof this.opts.profile === 'string' ? this.opts.profile : this.id;
+      this.profileDir = path.join(PROFILES_DIR, profileName.replace(/[^a-zA-Z0-9_-]/g, '_'));
+      ensureDir(this.profileDir);
+      launchOpts.userDataDir = this.profileDir;
+    }
+
+    this.browser = await puppeteerExtra.launch(launchOpts);
     this.page = await this.browser.newPage();
     await this.page.evaluateOnNewDocument(AGENTDOM_SCRIPT);
     return this;
@@ -127,7 +153,79 @@ class BrowserSession {
       url: this.page?.url() || null,
       createdAt: this.createdAt,
       lastUsed: this.lastUsed,
+      profile: this.profileDir || null,
     };
+  }
+
+  // ── Multi-page checkpointing ──────────────────────────────────────────
+
+  /** Save current workflow state (URL, cookies, localStorage, scroll) to
+   *  ~/.agentdom/checkpoints/<name>.json. Agents can restore mid-run if a
+   *  multi-step flow fails partway through. */
+  async saveCheckpoint(name) {
+    this.touch();
+    ensureDir(CHECKPOINTS_DIR);
+    const cookies = await this.page.cookies();
+    const state = await this.page.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      scroll: { x: scrollX, y: scrollY },
+      localStorage: (() => { try { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; } catch { return null; } })(),
+    }));
+    const checkpoint = {
+      name,
+      sessionId: this.id,
+      savedAt: new Date().toISOString(),
+      cookies,
+      ...state,
+    };
+    const file = path.join(CHECKPOINTS_DIR, `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(checkpoint, null, 2));
+    fs.renameSync(tmp, file);  // atomic write
+    return { saved: name, file, url: state.url };
+  }
+
+  /** Restore a checkpoint: navigate to the saved URL, set cookies and
+   *  localStorage, then scroll to the saved position. */
+  async restoreCheckpoint(name) {
+    this.touch();
+    const file = path.join(CHECKPOINTS_DIR, `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+    if (!fs.existsSync(file)) throw new Error(`Checkpoint "${name}" not found at ${file}`);
+    const checkpoint = JSON.parse(fs.readFileSync(file, 'utf-8'));
+
+    // Set cookies before navigating so auth cookies land
+    if (checkpoint.cookies?.length) {
+      await this.page.setCookie(...checkpoint.cookies);
+    }
+    await this.page.goto(checkpoint.url, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Restore localStorage
+    if (checkpoint.localStorage) {
+      await this.page.evaluate((data) => {
+        try { for (const [k, v] of Object.entries(data)) localStorage.setItem(k, v); } catch {}
+      }, checkpoint.localStorage);
+    }
+
+    // Restore scroll position
+    if (checkpoint.scroll) {
+      await this.page.evaluate(({ x, y }) => window.scrollTo(x, y), checkpoint.scroll);
+    }
+
+    return { restored: name, url: checkpoint.url, savedAt: checkpoint.savedAt };
+  }
+
+  /** List all available checkpoints. */
+  static listCheckpoints() {
+    ensureDir(CHECKPOINTS_DIR);
+    return fs.readdirSync(CHECKPOINTS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        try {
+          const data = JSON.parse(fs.readFileSync(path.join(CHECKPOINTS_DIR, f), 'utf-8'));
+          return { name: data.name, url: data.url, savedAt: data.savedAt };
+        } catch { return { name: f.replace('.json', ''), error: 'corrupt' }; }
+      });
   }
 }
 

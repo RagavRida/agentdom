@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+  "host": "slack.com",
+  "name": "Slack",
+  "description": "AgentDOM polyfill for Slack — messages, channels, users, and reactions.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "auth_url": "https://slack.com/oauth/v2/authorize",
+    "token_url": "https://slack.com/api/oauth.v2.access",
+    "scopes": ["channels:read", "channels:history", "chat:write", "users:read", "reactions:write", "files:write"]
+  },
+  "capabilities": [
+    {
+      "intent": "messages.send",
+      "description": "Send a message to a Slack channel or user.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://slack.com/api/chat.postMessage",
+      "args": {
+        "channel": { "type": "string", "required": true, "description": "Channel ID or name (#general) or user ID" },
+        "text": { "type": "string", "required": false, "description": "Message text (use blocks for rich formatting)" },
+        "blocks": { "type": "array", "required": false, "description": "Block Kit blocks for rich messages" },
+        "thread_ts": { "type": "string", "required": false, "description": "Reply to this thread timestamp" },
+        "username": { "type": "string", "required": false },
+        "icon_emoji": { "type": "string", "required": false }
+      },
+      "side_effects": ["send", "external"], "cost": 1
+    },
+    {
+      "intent": "messages.list",
+      "description": "Retrieve message history from a channel.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://slack.com/api/conversations.history",
+      "args": {
+        "channel": { "type": "string", "required": true, "description": "Channel ID" },
+        "limit": { "type": "number", "required": false, "description": "Max messages (default 100)" },
+        "oldest": { "type": "string", "required": false, "description": "Start timestamp" },
+        "latest": { "type": "string", "required": false, "description": "End timestamp" }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "channels.list",
+      "description": "List all public channels in the workspace.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://slack.com/api/conversations.list",
+      "args": {
+        "limit": { "type": "number", "required": false },
+        "types": { "type": "string", "required": false, "description": "public_channel,private_channel,mpim,im" }
+      },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "channels.create",
+      "description": "Create a new Slack channel.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://slack.com/api/conversations.create",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Channel name (lowercase, no spaces)" },
+        "is_private": { "type": "boolean", "required": false }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "users.list",
+      "description": "List workspace members.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://slack.com/api/users.list",
+      "args": { "limit": { "type": "number", "required": false } },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "reactions.add",
+      "description": "Add a reaction emoji to a message.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://slack.com/api/reactions.add",
+      "args": {
+        "channel": { "type": "string", "required": true },
+        "name": { "type": "string", "required": true, "description": "Emoji name without colons (e.g. thumbsup)" },
+        "timestamp": { "type": "string", "required": true, "description": "Message timestamp" }
+      },
+      "side_effects": ["external"], "cost": 1
+    }
+  ],
+  "meta": { "total_operations": 6, "api_type": "rest", "base_url": "https://slack.com/api", "docs": "https://api.slack.com/methods" }
+}

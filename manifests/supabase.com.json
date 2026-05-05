@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "host": "supabase.com",
+  "name": "Supabase",
+  "description": "AgentDOM polyfill for Supabase Management API — projects, databases, secrets.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "key_env": "SUPABASE_ACCESS_TOKEN"
+  },
+  "capabilities": [
+    {
+      "intent": "projects.list",
+      "description": "List all Supabase projects for the authenticated account.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.supabase.com/v1/projects",
+      "args": {},
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "projects.create",
+      "description": "Create a new Supabase project.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.supabase.com/v1/projects",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Project name" },
+        "organization_id": { "type": "string", "required": true, "description": "Organization ID" },
+        "db_pass": { "type": "string", "required": true, "description": "Database password (min 16 chars)" },
+        "region": { "type": "string", "required": true, "description": "AWS region (e.g. us-east-1)" },
+        "plan": { "type": "string", "required": false, "description": "free | pro" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "secrets.list",
+      "description": "List all secrets (environment variables) for a project.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.supabase.com/v1/projects/{ref}/secrets",
+      "args": { "ref": { "type": "string", "required": true, "description": "Project reference ID" } },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "secrets.upsert",
+      "description": "Create or update secrets for a project.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.supabase.com/v1/projects/{ref}/secrets",
+      "args": {
+        "ref": { "type": "string", "required": true, "description": "Project reference ID" },
+        "secrets": { "type": "array", "required": true, "description": "Array of { name, value } objects" }
+      },
+      "side_effects": ["external"], "cost": 1
+    },
+    {
+      "intent": "functions.list",
+      "description": "List all Edge Functions for a project.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.supabase.com/v1/projects/{ref}/functions",
+      "args": { "ref": { "type": "string", "required": true } },
+      "side_effects": ["read"], "cost": 1
+    },
+    {
+      "intent": "database.query",
+      "description": "Run a SQL query against a Supabase project database.",
+      "transport": "api", "method": "POST",
+      "endpoint": "https://api.supabase.com/v1/projects/{ref}/database/query",
+      "args": {
+        "ref": { "type": "string", "required": true, "description": "Project reference ID" },
+        "query": { "type": "string", "required": true, "description": "SQL query to execute" }
+      },
+      "side_effects": ["external", "write_local"], "cost": 1
+    },
+    {
+      "intent": "organizations.list",
+      "description": "List all organizations the user belongs to.",
+      "transport": "api", "method": "GET",
+      "endpoint": "https://api.supabase.com/v1/organizations",
+      "args": {},
+      "side_effects": ["read"], "cost": 1
+    }
+  ],
+  "meta": { "total_operations": 7, "api_type": "rest", "base_url": "https://api.supabase.com/v1", "docs": "https://supabase.com/docs/reference/api" }
+}

@@ -53,13 +53,21 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // ── FIX: Query across Shadow DOM ──
+  // ── FIX: Query across Shadow DOM AND same-origin iframes ──
   function deepQueryAll(root, selector) {
     const results = [...root.querySelectorAll(selector)];
     root.querySelectorAll('*').forEach(el => {
       if (el.shadowRoot) {
         results.push(...deepQueryAll(el.shadowRoot, selector));
       }
+    });
+    // Same-origin iframes — touching cross-origin throws SecurityError, swallow it.
+    const frames = root.querySelectorAll ? root.querySelectorAll('iframe, frame') : [];
+    frames.forEach(frame => {
+      try {
+        const doc = frame.contentDocument;
+        if (doc) results.push(...deepQueryAll(doc, selector));
+      } catch (_) { /* cross-origin frame, skip */ }
     });
     return results;
   }

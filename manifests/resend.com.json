@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "host": "resend.com",
+  "name": "Resend",
+  "description": "AgentDOM polyfill manifest for Resend — email delivery.",
+  "generated_at": "2026-05-05T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}"
+  },
+  "capabilities": [
+    {
+      "intent": "emails.send",
+      "description": "Send an email using Resend.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.resend.com/emails",
+      "args": {
+        "from": { "type": "string", "required": true, "description": "Sender email address (e.g., 'Acme <onboarding@resend.dev>')" },
+        "to": { "type": "array", "required": true, "description": "Recipient email addresses" },
+        "subject": { "type": "string", "required": true, "description": "Email subject" },
+        "html": { "type": "string", "required": false, "description": "HTML body" },
+        "text": { "type": "string", "required": false, "description": "Plain text body" },
+        "cc": { "type": "array", "required": false, "description": "CC email addresses" },
+        "bcc": { "type": "array", "required": false, "description": "BCC email addresses" },
+        "reply_to": { "type": "string", "required": false, "description": "Reply-To address" }
+      },
+      "side_effects": ["send", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "emails.get",
+      "description": "Retrieve a single email by its ID.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.resend.com/emails/{id}",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Email ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "domains.list",
+      "description": "List all domains attached to the Resend account.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.resend.com/domains",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "domains.create",
+      "description": "Create a new domain in Resend.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.resend.com/domains",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Domain name (e.g., 'example.com')" },
+        "region": { "type": "string", "required": false, "description": "Region (us-east-1, eu-west-1, sa-east-1)" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "api_keys.list",
+      "description": "List all API keys.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.resend.com/api-keys",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 5,
+    "api_type": "rest",
+    "base_url": "https://api.resend.com",
+    "docs": "https://resend.com/docs/api-reference/introduction"
+  }
+}

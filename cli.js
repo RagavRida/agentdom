@@ -920,6 +920,8 @@ if (args[0] === 'init') {
   require('./commands/launch').run(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
 } else if (args[0] === 'sessions') {
   require('./commands/sessions').run(args.slice(1));
+} else if (args[0] === 'auth') {
+  require('./commands/auth').run(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
 } else if (args.includes('--desktop') || args.includes('-d')) {
   desktopMode().catch(e => { console.error('Fatal:', e); process.exit(1); });
 } else {

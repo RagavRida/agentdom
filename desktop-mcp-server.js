@@ -17,6 +17,7 @@ const { loadManifest, resolveAlias, mergeManifestTools } = require('./compiler/f
 const electronBridge = require('./desktop-agent/electron-bridge');
 const launchCmd = require('./commands/launch');
 const discovery = require('./discovery');
+const authWallet = require('./commands/auth');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -175,6 +176,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'wallet_list',
+      description: 'List every provider in the auth wallet (~/.agentdom/wallet.json) — provider host, auth method, scopes, expiry. Secrets are NOT returned. Use this BEFORE dispatch_intent to know which providers the agent can call without re-auth.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'wallet_auth',
+      description: 'Authenticate to a provider so dispatch_intent can use its API. Reads .well-known/agentdom.json from the provider host, runs the right flow (oauth2 opens browser, api_key prompts paste, session_cookie reads from active browser). Token persisted in ~/.agentdom/wallet.json.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          provider: { type: 'string', description: 'Provider host, e.g. "hubspot.com" or "linear.app".' },
+          intents: { type: 'array', items: { type: 'string' }, description: 'Intents the agent will need — used to compute OAuth scopes.' },
+          client_id: { type: 'string', description: 'OAuth2 client_id (or set env AGENTDOM_<HOST>_CLIENT_ID).' },
+          client_secret: { type: 'string', description: 'OAuth2 client_secret if confidential client.' },
+          key: { type: 'string', description: 'API key value (for api_key auth).' },
+          force: { type: 'boolean', description: 'Re-auth even if a valid token exists.' },
+        },
+        required: ['provider'],
+      },
+    },
+    {
+      name: 'wallet_revoke',
+      description: 'Remove a provider from the wallet. Does NOT call the provider\'s revocation endpoint; just deletes the local token. Pair with provider-side revocation if needed.',
+      inputSchema: {
+        type: 'object',
+        properties: { provider: { type: 'string' } },
+        required: ['provider'],
+      },
+    },
+    {
+      name: 'dispatch_intent',
+      description: 'Universal action dispatcher. Looks up intent across all known providers (well-known manifests + bundled AGENTDOM.md + scanned UIs), picks the cheapest authed transport (API > CLI > UI), executes, and returns the result. Use INSTEAD of click_*/dom_*/api-specific tools when a manifested intent covers the goal.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          intent: { type: 'string', description: 'Dotted intent id, e.g. "contacts.create", "messaging.send".' },
+          args: { type: 'object', description: 'Arguments matching the intent\'s schema.' },
+          provider: { type: 'string', description: 'Force a specific provider host instead of auto-routing.' },
+          dry_run: { type: 'boolean', description: 'Return the plan without executing.' },
+        },
+        required: ['intent'],
+      },
+    },
+    {
       name: 'discover_surfaces',
       description: 'Enumerate every surface this machine offers an agent right now: manifested desktop apps (running + framework), CLI tools (installed?), live CDP endpoints (sessions.json + process scan), and an inverted intent index grouping capabilities across apps (e.g. messaging.send → Slack, Discord). Use this BEFORE picking which app to drive — the intent index lets the LLM route by capability, not app name. Returns hints for the next action when something is installed but idle.',
       inputSchema: {
@@ -280,6 +325,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], isError: true };
         }
         return ok(result);
+      }
+      if (name === 'wallet_list') {
+        return ok({ wallet_path: authWallet.WALLET_FILE, providers: authWallet.tokens() });
+      }
+      if (name === 'wallet_auth') {
+        if (!args?.provider) {
+          return { content: [{ type: 'text', text: 'wallet_auth requires { provider }' }], isError: true };
+        }
+        try {
+          const r = await authWallet.auth({
+            provider: args.provider,
+            intents: args.intents || [],
+            clientId: args.client_id,
+            clientSecret: args.client_secret,
+            key: args.key,
+            force: !!args.force,
+          });
+          return ok(r);
+        } catch (e) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: e.message }, null, 2) }], isError: true };
+        }
+      }
+      if (name === 'wallet_revoke') {
+        if (!args?.provider) {
+          return { content: [{ type: 'text', text: 'wallet_revoke requires { provider }' }], isError: true };
+        }
+        return ok(authWallet.revoke(args.provider));
+      }
+      if (name === 'dispatch_intent') {
+        if (!args?.intent) {
+          return { content: [{ type: 'text', text: 'dispatch_intent requires { intent }' }], isError: true };
+        }
+        try {
+          const r = await dispatchIntent({
+            intent: args.intent,
+            args: args.args || {},
+            provider: args.provider,
+            dryRun: !!args.dry_run,
+          });
+          if (r.error) return { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }], isError: true };
+          return ok(r);
+        } catch (e) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: e.message }, null, 2) }], isError: true };
+        }
       }
       if (name === 'discover_surfaces') {
         const result = await discovery.discover({ skipCDP: !!args?.skipCDP });
@@ -656,6 +745,121 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
   return { contents: [{ uri, mimeType: 'text/plain', text: 'Unknown resource' }] };
 });
+
+// ── Universal intent dispatcher ─────────────────────────────────────────────
+// Routing: well-known providers → bundled manifests → scanned UIs.
+// Picks the cheapest authed transport. API → CLI → UI.
+
+async function dispatchIntent({ intent, args = {}, provider: forcedProvider, dryRun = false }) {
+  // 1. Gather candidate providers from every source.
+  const candidates = [];
+
+  // Well-known: walk the wallet for any provider that already advertises this intent.
+  for (const entry of authWallet.tokens()) {
+    const d = await authWallet.discover(entry.provider).catch(() => null);
+    const cap = d?.manifest?.capabilities?.find(c => c.intent === intent);
+    if (!cap) continue;
+    candidates.push({
+      source: 'well-known',
+      provider: entry.provider,
+      capability: cap,
+      manifest: d.manifest,
+      auth_status: 'authed',
+      cost: typeof cap.cost === 'number' ? cap.cost : (cap.transport === 'api' ? 1 : cap.transport === 'cli' ? 5 : 30),
+    });
+  }
+
+  // Bundled manifests: anything in the registry that declares this intent.
+  for (const m of discovery && discovery.discover ? (await discovery.discover({ skipCDP: true })).manifests : []) {
+    if (!m.intents.includes(intent)) continue;
+    candidates.push({
+      source: 'bundled-manifest',
+      provider: m.app,
+      capability: { intent, transport: m.platform === 'cli' ? 'cli' : (m.platform === 'web' ? 'ui' : 'ui') },
+      cost: m.platform === 'cli' ? 5 : 30,
+      auth_status: 'n/a',
+      manifest_path: m.sourcePath,
+    });
+  }
+
+  if (forcedProvider) {
+    const before = candidates.length;
+    const filtered = candidates.filter(c => c.provider === forcedProvider);
+    if (!filtered.length) {
+      return { error: `No provider "${forcedProvider}" advertises intent "${intent}"`, considered: before };
+    }
+    candidates.length = 0; candidates.push(...filtered);
+  }
+
+  if (!candidates.length) {
+    return {
+      error: `No provider found for intent "${intent}"`,
+      hint: 'Run wallet_auth({ provider }) for a SaaS that supports this intent, OR ensure a bundled manifest declares it.',
+    };
+  }
+
+  // 2. Sort by cost ascending.
+  candidates.sort((a, b) => (a.cost ?? 99) - (b.cost ?? 99));
+  const chosen = candidates[0];
+
+  if (dryRun) {
+    return {
+      dry_run: true,
+      intent,
+      args,
+      candidates: candidates.map(c => ({ provider: c.provider, source: c.source, transport: c.capability?.transport, cost: c.cost })),
+      chosen: { provider: chosen.provider, transport: chosen.capability?.transport, cost: chosen.cost },
+    };
+  }
+
+  // 3. Dispatch.
+  const cap = chosen.capability;
+  if (chosen.source === 'well-known' && cap.transport === 'api') {
+    const tok = await authWallet.token(chosen.provider);
+    if (tok.error) return { error: tok.error, hint: `Run wallet_auth({ provider: "${chosen.provider}" }).` };
+    return await dispatchHttpCapability({ provider: chosen.provider, capability: cap, args, token: tok });
+  }
+
+  if (chosen.source === 'bundled-manifest') {
+    return {
+      dispatched: 'manifest-fallback',
+      provider: chosen.provider,
+      hint: 'Bundled manifest dispatch needs the app to be running. Use scan_app then call the manifest tool by name.',
+    };
+  }
+
+  return { error: `Transport "${cap?.transport}" via ${chosen.source} not yet implemented.`, chosen };
+}
+
+async function dispatchHttpCapability({ provider, capability, args, token }) {
+  let url = capability.endpoint;
+  // {placeholder} substitution from args
+  url = url.replace(/\{(\w+)\}/g, (_, k) => {
+    const v = args[k];
+    if (v == null) throw new Error(`Missing path arg "${k}" for ${capability.intent}`);
+    return encodeURIComponent(String(v));
+  });
+  const headers = { 'Accept': 'application/json' };
+  if (token.method === 'oauth2') headers['Authorization'] = `Bearer ${token.access_token}`;
+  if (token.method === 'api_key') headers[token.header || 'Authorization'] = (token.format || '{token}').replace('{token}', token.key);
+  let body = null;
+  if (capability.method && capability.method !== 'GET' && capability.method !== 'DELETE') {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(args.body || args);
+  }
+  const res = await fetch(url, { method: capability.method || 'GET', headers, body });
+  const text = await res.text();
+  let parsed = null; try { parsed = JSON.parse(text); } catch (_) {}
+  return {
+    dispatched: 'well-known:api',
+    provider,
+    intent: capability.intent,
+    request: { url, method: capability.method },
+    status: res.status,
+    ok: res.ok,
+    body: parsed || text.slice(0, 1000),
+  };
+}
 
 function ok(data) {
   return { content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] };

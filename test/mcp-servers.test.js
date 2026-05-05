@@ -287,6 +287,28 @@ async function testDesktop() {
       assert.strictEqual(data.providers.length, 0);
       assert.ok(/Available intents/.test(data.note), `note should list known intents; got: ${data.note}`);
     });
+
+    await test('desktop: wallet_list returns the wallet envelope', async () => {
+      const r = await client.callTool({ name: 'wallet_list', arguments: {} });
+      assert.ok(!r.isError);
+      const data = jsonText(r);
+      assert.ok(data.wallet_path && data.wallet_path.endsWith('wallet.json'));
+      assert.ok(Array.isArray(data.providers));
+    });
+
+    await test('desktop: wallet_revoke on unknown provider returns revoked:false', async () => {
+      const r = await client.callTool({ name: 'wallet_revoke', arguments: { provider: 'no-such-provider.example' } });
+      assert.ok(!r.isError);
+      const data = jsonText(r);
+      assert.strictEqual(data.revoked, false);
+    });
+
+    await test('desktop: dispatch_intent on unknown intent returns clean error', async () => {
+      const r = await client.callTool({ name: 'dispatch_intent', arguments: { intent: 'no.such.intent' } });
+      assert.ok(r.isError);
+      const data = jsonText(r);
+      assert.ok(/No provider found/.test(data.error), `unexpected error: ${data.error}`);
+    });
   } finally {
     await close();
   }

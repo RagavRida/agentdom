@@ -3,10 +3,9 @@
   "version": "3.2.0",
   "description": "Universal AI agent protocol. Agents interact with any software — web, desktop, SaaS API, CLI — through a single semantic interface. No screenshots. No scraping.",
   "main": "agentdom.js",
-  "type": "module",
   "bin": {
-    "agentdom": "cli.js",
-    "agentdom-publisher": "tools/publisher.js"
+    "agentdom": "./cli.js",
+    "agentdom-publisher": "./tools/publisher.mjs"
   },
   "files": [
     "agentdom.js",

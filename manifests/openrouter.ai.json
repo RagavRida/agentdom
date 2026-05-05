@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "host": "openrouter.ai",
+  "name": "OpenRouter",
+  "description": "AgentDOM polyfill for OpenRouter — unified access to 300+ LLMs (Claude, GPT-4o, Gemini, Llama, Mistral, etc.) through a single OpenAI-compatible API.",
+  "generated_at": "2026-05-06T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "key_env": "OPENROUTER_API_KEY"
+  },
+  "capabilities": [
+    {
+      "intent": "chat.complete",
+      "description": "Send a prompt to any LLM via OpenRouter (Claude, GPT-4o, Gemini, Llama, Mistral, etc.).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "headers": {
+        "HTTP-Referer": "https://getagentdom.com",
+        "X-Title": "AgentDOM"
+      },
+      "args": {
+        "model": {
+          "type": "string",
+          "required": true,
+          "description": "Model ID e.g. openai/gpt-4o, anthropic/claude-opus-4-5, google/gemini-pro, meta-llama/llama-3.3-70b-instruct"
+        },
+        "messages": {
+          "type": "array",
+          "required": true,
+          "description": "Array of { role: 'user'|'assistant'|'system', content: string } messages"
+        },
+        "temperature": { "type": "number", "required": false, "description": "0-2 sampling temperature" },
+        "max_tokens": { "type": "number", "required": false },
+        "stream": { "type": "boolean", "required": false },
+        "top_p": { "type": "number", "required": false }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "models.list",
+      "description": "List all 300+ models available on OpenRouter with pricing info.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://openrouter.ai/api/v1/models",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "credits.get",
+      "description": "Get remaining API credits and usage for your OpenRouter account.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://openrouter.ai/api/v1/auth/key",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "generation.get",
+      "description": "Get details and cost of a specific generation by ID.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://openrouter.ai/api/v1/generation",
+      "args": {
+        "id": { "type": "string", "required": true, "description": "Generation ID from a chat completion response" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 4,
+    "api_type": "rest",
+    "base_url": "https://openrouter.ai/api/v1",
+    "docs": "https://openrouter.ai/docs/api-reference",
+    "popular_models": [
+      "openai/gpt-4o",
+      "openai/gpt-4o-mini",
+      "anthropic/claude-opus-4-5",
+      "anthropic/claude-sonnet-4-5",
+      "google/gemini-pro-1.5",
+      "meta-llama/llama-3.3-70b-instruct",
+      "mistralai/mistral-large",
+      "deepseek/deepseek-r1"
+    ]
+  }
+}

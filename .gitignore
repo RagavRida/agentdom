@@ -3,3 +3,8 @@ node_modules/
 *.log
 .env
 aws/
+
+# Generated reports
+gtm-strategy-*.md
+*-report-*.md
+tools/demo-*.js

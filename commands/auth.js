@@ -81,20 +81,46 @@ function deleteProvider(host) {
 // ── Discovery ───────────────────────────────────────────────────────────────
 
 /** Fetch the well-known manifest for a provider host (e.g. "hubspot.com").
- *  Returns the parsed manifest or { error, hint } on failure. */
+ *  Falls back to bundled polyfill manifests when the remote endpoint is absent. */
 async function discover(provider, opts = {}) {
   const host = normalizeHost(provider);
   const url = `https://${host}${WELL_KNOWN_PATH}`;
+
+  // 1. Try live .well-known/agentdom.json
   try {
-    const res = await fetchRetry(url, {}, { timeoutMs: opts.timeoutMs || 5000, retries: 2 });
-    if (!res.ok) return { error: `${url} returned ${res.status}`, hint: 'Vendor has not published an agentdom manifest yet.' };
-    const manifest = await res.json();
-    if (!manifest.agentdom) return { error: 'Manifest missing required "agentdom" version field.', manifest };
-    return { manifest, source_url: url };
-  } catch (e) {
-    return { error: e.message, hint: `Could not reach ${url} (retried 3x).` };
-  }
+    const res = await fetchRetry(url, {}, { timeoutMs: opts.timeoutMs || 5000, retries: 1 });
+    if (res.ok) {
+      const manifest = await res.json();
+      if (manifest.version || manifest.capabilities) return { manifest, source_url: url };
+    }
+  } catch (_) {}
+
+  // 2. Fall back to bundled polyfill manifest
+  try {
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url || `file://${process.cwd()}/`);
+    const localPath = req.resolve(`./manifests/${host}.json`);
+    const manifest = JSON.parse(require('fs').readFileSync(localPath, 'utf-8'));
+    return { manifest, source_url: `polyfill:${host}` };
+  } catch (_) {}
+
+  // Also try with path module (CJS context)
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const localPath = path.join(__dirname, '..', 'manifests', `${host}.json`);
+    if (fs.existsSync(localPath)) {
+      const manifest = JSON.parse(fs.readFileSync(localPath, 'utf-8'));
+      return { manifest, source_url: `polyfill:${host}` };
+    }
+  } catch (_) {}
+
+  return {
+    error: `${url} not reachable and no bundled polyfill found for ${host}`,
+    hint: `Run: npx agentdom-publisher init --openapi=./openapi.json --host=${host}`,
+  };
 }
+
 
 function normalizeHost(s) {
   return String(s).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*/, '');

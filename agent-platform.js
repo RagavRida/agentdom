@@ -152,9 +152,9 @@ const CAPABILITIES = {
 
   // ── System (Instant/Headless) ──
   exec: {
-    category: 'system', description: 'Execute a shell command and return output',
-    params: { command: { type: 'string', required: true } },
-    execute: ({ command }) => instant.exec(command),
+    category: 'system', description: 'Execute a shell command and return output. For commands that take longer than 30s (downloads, builds) pass timeout_ms up to 300000.',
+    params: { command: { type: 'string', required: true }, timeout_ms: { type: 'number' } },
+    execute: ({ command, timeout_ms }) => instant.exec(command, timeout_ms),
   },
   read_file: {
     category: 'system', description: 'Read a file\'s contents',

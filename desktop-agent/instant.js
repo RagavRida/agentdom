@@ -83,9 +83,10 @@ const instant = {
 
   // ── Shell / Process ──
 
-  exec(command) {
+  exec(command, timeoutMs) {
+    const timeout = Math.min(Number(timeoutMs) || 30000, 300000);
     try {
-      const output = execSync(command, { encoding: 'utf-8', timeout: 30000, maxBuffer: 10 * 1024 * 1024 }).trim();
+      const output = execSync(command, { encoding: 'utf-8', timeout, maxBuffer: 50 * 1024 * 1024 }).trim();
       return { success: true, output };
     } catch (e) {
       return { success: false, error: e.message, output: e.stdout || '' };

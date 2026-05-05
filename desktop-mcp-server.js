@@ -246,7 +246,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 // ── Tool Execution ──
-const DESKTOP_TIMEOUT = 30000; // 30s max per tool
+const DESKTOP_TIMEOUT = 300000; // 5 min — exec can request long-running commands (downloads, builds)
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;

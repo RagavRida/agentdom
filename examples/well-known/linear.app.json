@@ -1,0 +1,59 @@
+{
+  "agentdom": "0.1",
+  "name": "Linear",
+  "homepage": "https://linear.app",
+  "icon": "https://linear.app/favicon.ico",
+  "description": "Issue tracker for product teams.",
+
+  "auth": {
+    "method": "api_key",
+    "header": "Authorization",
+    "format": "{token}",
+    "obtain_url": "https://linear.app/settings/api"
+  },
+
+  "capabilities": [
+    {
+      "intent": "issue.create",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "graphql_mutation": "mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { issue { id identifier title url } } }",
+      "cost": 1
+    },
+    {
+      "intent": "issue.search",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "graphql_query": "query SearchIssues($q: String!) { issueSearch(query: $q) { nodes { id identifier title state { name } } } }",
+      "cost": 1
+    },
+    {
+      "intent": "issue.transition",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.linear.app/graphql",
+      "graphql_mutation": "mutation IssueUpdate($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { issue { id state { name } } } }",
+      "cost": 1
+    },
+    {
+      "intent": "view.board",
+      "transport": "ui",
+      "url": "https://linear.app/{teamKey}/board",
+      "auth_via": "session_cookie",
+      "cost": 30
+    }
+  ],
+
+  "fallback": {
+    "transport": "ui",
+    "host": "linear.app"
+  },
+
+  "policy": {
+    "rate_limit": "1500/hour",
+    "side_effects_disclosed": ["issue.create", "issue.transition"],
+    "data_residency": "US"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "agentdom": "0.1",
+  "name": "Example Service",
+  "description": "Minimal demo manifest — public, no auth required.",
+  "auth": { "method": "none" },
+  "capabilities": [
+    {
+      "intent": "info.fetch",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://example.com/info.json",
+      "cost": 1
+    }
+  ]
+}

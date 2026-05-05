@@ -1,0 +1,91 @@
+{
+  "agentdom": "0.1",
+  "name": "HubSpot",
+  "homepage": "https://www.hubspot.com",
+  "icon": "https://www.hubspot.com/favicon.ico",
+  "description": "CRM platform — contacts, deals, marketing hub, sales hub, service hub.",
+
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://app.hubspot.com/oauth/authorize",
+    "token_url": "https://api.hubapi.com/oauth/v1/token",
+    "client_id_required": true,
+    "scopes_for": {
+      "contacts.read":   ["crm.objects.contacts.read"],
+      "contacts.create": ["crm.objects.contacts.write"],
+      "contacts.update": ["crm.objects.contacts.write"],
+      "contacts.search": ["crm.objects.contacts.read"],
+      "deals.read":      ["crm.objects.deals.read"],
+      "deals.create":    ["crm.objects.deals.write"],
+      "deal.move_stage": ["crm.objects.deals.write"]
+    }
+  },
+
+  "capabilities": [
+    {
+      "intent": "contacts.create",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.hubapi.com/crm/v3/objects/contacts",
+      "scopes": ["crm.objects.contacts.write"],
+      "cost": 1
+    },
+    {
+      "intent": "contacts.search",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.hubapi.com/crm/v3/objects/contacts/search",
+      "scopes": ["crm.objects.contacts.read"],
+      "cost": 1
+    },
+    {
+      "intent": "contacts.update",
+      "transport": "api",
+      "method": "PATCH",
+      "endpoint": "https://api.hubapi.com/crm/v3/objects/contacts/{contactId}",
+      "scopes": ["crm.objects.contacts.write"],
+      "cost": 1
+    },
+    {
+      "intent": "deals.create",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.hubapi.com/crm/v3/objects/deals",
+      "scopes": ["crm.objects.deals.write"],
+      "cost": 1
+    },
+    {
+      "intent": "deal.move_stage",
+      "transport": "api",
+      "method": "PATCH",
+      "endpoint": "https://api.hubapi.com/crm/v3/objects/deals/{dealId}",
+      "scopes": ["crm.objects.deals.write"],
+      "cost": 1
+    },
+    {
+      "intent": "report.view",
+      "transport": "ui",
+      "url": "https://app.hubspot.com/reports/{reportId}",
+      "auth_via": "session_cookie",
+      "cost": 30
+    }
+  ],
+
+  "openapi": "https://api.hubapi.com/api-catalog-public/v1/apis",
+
+  "fallback": {
+    "transport": "ui",
+    "host": "app.hubspot.com"
+  },
+
+  "policy": {
+    "rate_limit": "100/10s",
+    "side_effects_disclosed": [
+      "contacts.create",
+      "contacts.update",
+      "deals.create",
+      "deal.move_stage"
+    ],
+    "data_residency": "US"
+  }
+}

@@ -84,43 +84,36 @@ function deleteProvider(host) {
  *  Falls back to bundled polyfill manifests when the remote endpoint is absent. */
 async function discover(provider, opts = {}) {
   const host = normalizeHost(provider);
-  const url = `https://${host}${WELL_KNOWN_PATH}`;
+  const url  = `https://${host}${WELL_KNOWN_PATH}`;
 
-  // 1. Try live .well-known/agentdom.json
+  // 1. Try live .well-known/agentdom.json (quick, 1 retry)
   try {
-    const res = await fetchRetry(url, {}, { timeoutMs: opts.timeoutMs || 5000, retries: 1 });
+    const res = await fetchRetry(url, {}, { timeoutMs: opts.timeoutMs || 4000, retries: 1 });
     if (res.ok) {
       const manifest = await res.json();
-      if (manifest.version || manifest.capabilities) return { manifest, source_url: url };
+      if (manifest.version || manifest.capabilities) {
+        return { manifest, source_url: url };
+      }
     }
-  } catch (_) {}
+  } catch (_) { /* unreachable or non-JSON — fall through */ }
 
-  // 2. Fall back to bundled polyfill manifest
-  try {
-    const { createRequire } = await import('module');
-    const req = createRequire(import.meta.url || `file://${process.cwd()}/`);
-    const localPath = req.resolve(`./manifests/${host}.json`);
-    const manifest = JSON.parse(require('fs').readFileSync(localPath, 'utf-8'));
-    return { manifest, source_url: `polyfill:${host}` };
-  } catch (_) {}
-
-  // Also try with path module (CJS context)
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const localPath = path.join(__dirname, '..', 'manifests', `${host}.json`);
-    if (fs.existsSync(localPath)) {
+  // 2. Fall back to bundled polyfill (CJS __dirname, always available)
+  const localPath = path.join(__dirname, '..', 'manifests', `${host}.json`);
+  if (fs.existsSync(localPath)) {
+    try {
       const manifest = JSON.parse(fs.readFileSync(localPath, 'utf-8'));
+      console.log(`  ${host} — using bundled polyfill manifest`);
       return { manifest, source_url: `polyfill:${host}` };
+    } catch (e) {
+      return { error: `Bundled polyfill for ${host} is malformed: ${e.message}` };
     }
-  } catch (_) {}
+  }
 
   return {
     error: `${url} not reachable and no bundled polyfill found for ${host}`,
-    hint: `Run: npx agentdom-publisher init --openapi=./openapi.json --host=${host}`,
+    hint:  `Run: npx agentdom-publisher init --openapi=./openapi.json --host=${host}`,
   };
 }
-
 
 function normalizeHost(s) {
   return String(s).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*/, '');

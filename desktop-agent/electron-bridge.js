@@ -271,6 +271,14 @@ class ElectronSession {
     }, expr);
   }
 
+  /** Navigate the attached page to a new URL. Waits for `load` so the
+   *  next scanWindow sees the destination DOM, not the in-flight page. */
+  async navigate(url, opts = {}) {
+    const page = await this._activePage(opts);
+    await page.goto(url, { waitUntil: 'load', timeout: opts.timeoutMs || 30000 });
+    return { navigated: url, title: await page.title().catch(() => ''), finalUrl: page.url() };
+  }
+
   /** Press a single key chord — e.g. "Meta+Shift+P" to open VS Code's
    *  command palette. Routed through CDP's keyboard, so it lands in the
    *  renderer regardless of OS focus. */

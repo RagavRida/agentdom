@@ -11,15 +11,33 @@ named tools** the agent invokes by name. Selectors stay on the AgentDOM side.
 
 ## Try it
 
+The product is the MCP server. Connect any MCP client and tell it what to
+do in plain English — the LLM picks the tools.
+
 ```bash
-npm run demo:desktop   # 8-step TextEdit workflow over MCP — see test/desktop-workflow.demo.js
-npm run test:mcp       # 11-case live MCP harness (CLI + API + Desktop)
-npm run test:compiler  # 16-case IR/optimizer/codegen smoke
+# Wire desktop server into Claude Code (the CLI):
+claude mcp add agentdom-desktop \
+  node /path/to/agent-schema/desktop-mcp-server.js
+
+# Then in any session:
+#   "Compute 49×17 in Calculator and tell me the answer."
+#   "Open TextEdit and write 'hello world'."
+#   "Use discover_surfaces, then drive whichever app offers messaging.send."
 ```
 
-The desktop demo will take focus on TextEdit, open and close the Find panel,
-open the Edit menu, hide/restore the app — all through typed tools dispatched
-through the MCP server. No selectors or coordinate clicks issued by the caller.
+For Claude Desktop / Cursor / Cline / Continue, drop the same command +
+args into the client's `mcpServers` config. No demos to run, no goals to
+script — the LLM uses scan_app/launch_electron/discover_surfaces/the
+manifest tools directly.
+
+Regression tests (run before release, not for daily use):
+
+```bash
+npm run test:compiler  # 16-case IR/optimizer/codegen unit tests
+npm run test:mcp       # 16-case live MCP harness (CLI + API + Desktop)
+npm run test:launch    # 6-case launcher round-trip (live Chrome)
+npm run test:electron  # 9-case CDP bridge round-trip (headless Chrome)
+```
 
 ## TL;DR
 

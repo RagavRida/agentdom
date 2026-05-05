@@ -186,13 +186,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: 'launch_electron',
-      description: 'Relaunch an Electron app with --remote-debugging-port exposed and attach in one step. ZERO-SETUP path: closes the gap where users would otherwise have to relaunch the app from a terminal themselves. Refuses to relaunch a running app unless { force: true } (force closes existing windows; unsaved state may be lost).',
+      name: 'navigate_browser',
+      description: 'Navigate the currently-attached Electron/Chromium session to a URL and wait for the page to load. Use this AFTER launch_electron({ app: "Google Chrome" }) (or any Electron app exposing CDP) to drive the renderer to a specific site. Returns the page title and final URL after redirects. The next scan_app({ app }) will reflect the new DOM.',
       inputSchema: {
         type: 'object',
         properties: {
-          app: { type: 'string', description: 'App bundle name (e.g. "Visual Studio Code", "Slack", "Cursor").' },
-          force: { type: 'boolean', description: 'If true and the app is running without the flag, quit it first. Default false.' },
+          url: { type: 'string', description: 'Target URL (must include scheme).' },
+          timeoutMs: { type: 'number', description: 'Navigation timeout in ms. Default 30000.' },
+          urlIncludes: { type: 'string', description: 'Optional: target a specific renderer when the session has multiple tabs.' },
+        },
+        required: ['url'],
+      },
+    },
+    {
+      name: 'launch_electron',
+      description: 'Relaunch an Electron or Chromium app with --remote-debugging-port exposed and attach in one step. ZERO-SETUP path. Refuses to relaunch a running app unless { force: true } OR { parallel: true }. parallel mode auto-allocates a temp --user-data-dir so a second instance can run alongside the user\'s existing one — use this for Chromium browsers (Google Chrome, Edge, Brave) when you want a fresh sandbox without disturbing the user\'s current windows.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: 'App bundle name (e.g. "Visual Studio Code", "Slack", "Cursor", "Google Chrome").' },
+          force: { type: 'boolean', description: 'If true and the app is running without the flag, quit it first. Default false. WARNING: closes existing windows.' },
+          parallel: { type: 'boolean', description: 'If true, launch a sandboxed second instance using a temp --user-data-dir. Only works for Chromium browsers; Electron apps with hardcoded data dirs will refuse to coexist. Default false.' },
           port: { type: 'number', description: 'Pin a specific CDP port (default: random free port).' },
           urlIncludes: { type: 'string', description: 'After attach, target the renderer whose URL contains this substring.' },
         },
@@ -282,15 +296,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         return ok(result);
       }
+      if (name === 'navigate_browser') {
+        if (!args?.url) {
+          return { content: [{ type: 'text', text: 'navigate_browser requires { url }' }], isError: true };
+        }
+        if (!electronSession) {
+          return { content: [{ type: 'text', text: 'No Electron/Chromium session attached. Call launch_electron({ app: "Google Chrome" }) first.' }], isError: true };
+        }
+        try {
+          const r = await electronSession.navigate(args.url, { timeoutMs: args.timeoutMs, urlIncludes: args.urlIncludes });
+          return ok(r);
+        } catch (e) {
+          return { content: [{ type: 'text', text: `navigate failed: ${e.message}` }], isError: true };
+        }
+      }
       if (name === 'launch_electron') {
         if (!args?.app) {
           return { content: [{ type: 'text', text: 'launch_electron requires { app: <name> }' }], isError: true };
+        }
+        // parallel:true → inject a temp --user-data-dir so we coexist with the user's instance.
+        const extraArgs = [];
+        if (args.parallel) {
+          const dir = require('path').join(require('os').tmpdir(), `agentdom-parallel-${Date.now()}-${process.pid}`);
+          require('fs').mkdirSync(dir, { recursive: true });
+          extraArgs.push(`--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check');
         }
         // Step 1: launch the app with the CDP flag (or reuse if already running with one).
         const launched = await launchCmd.launchApp(args.app, {
           force: !!args.force,
           port: args.port || null,
           quiet: true,
+          extraArgs,
         });
         if (launched.error) {
           return { content: [{ type: 'text', text: JSON.stringify(launched, null, 2) }], isError: true };

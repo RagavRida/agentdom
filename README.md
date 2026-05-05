@@ -1,6 +1,21 @@
+<div align="center">
+
 # AgentDOM
 
 **The universal protocol for AI agents to interact with any software.**
+
+[![npm version](https://img.shields.io/npm/v/agentdom?color=orange&label=agentdom)](https://www.npmjs.com/package/agentdom)
+[![npm downloads](https://img.shields.io/npm/dm/agentdom?color=orange)](https://www.npmjs.com/package/agentdom)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js ≥18](https://img.shields.io/badge/node-%3E%3D18-green)](package.json)
+
+**[Website](https://getagentdom.com)** · **[Docs](https://getagentdom.com/docs)** · **[npm](https://www.npmjs.com/package/agentdom)** · **[Publisher Guide](docs/PUBLISHER-GUIDE.md)**
+
+</div>
+
+> Agents are already browsing the web, making purchases, and managing CRMs. But they're doing it on top of software designed for humans — clicking buttons, scraping screenshots, guessing CSS selectors.
+>
+> **AgentDOM gives agents machine-readable access to any software — REST APIs, SaaS tools, desktop apps, and CLIs — through a single semantic interface.**
 
 ```bash
 npm install -g agentdom

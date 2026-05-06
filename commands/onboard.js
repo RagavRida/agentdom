@@ -1,285 +1,292 @@
 #!/usr/bin/env node
 /**
- * agentdom onboard  ─  OpenClaw‑style first‑run setup wizard.
- *
- * Guides the user through:
- *   1. LLM provider selection  (OpenAI · Anthropic · OpenRouter · Ollama)
- *   2. Integrations            (GitHub · Linear · Slack · Notion · …)
- *   3. Browser (Chrome CDP)    (auto‑detect or guided launch)
- *   4. Run a first test goal   (smoke‑test that everything works)
- *   5. Export wallet           (optional base64 export for CI)
- *
- * Inspired by OpenClaw's `openclaw setup` + `openclaw onboard` TUI.
+ * agentdom onboard  ─  Claude‑Code‑style interactive setup wizard.
+ * agentdom doctor   ─  Health check.
  */
 
 'use strict';
 
 const readline = require('readline');
 const { execSync, exec } = require('child_process');
-const path   = require('path');
-const fs     = require('fs');
-const os     = require('os');
+const path = require('path');
+const fs   = require('fs');
+const os   = require('os');
 
-// ── ANSI colours ───────────────────────────────────────────────────────────
-const C = {
-  reset:  '\x1b[0m',
-  bold:   '\x1b[1m',
-  dim:    '\x1b[2m',
-  green:  '\x1b[38;2;0;212;170m',
-  purple: '\x1b[38;2;167;139;250m',
-  orange: '\x1b[38;2;251;146;60m',
-  blue:   '\x1b[38;2;96;165;250m',
-  red:    '\x1b[38;2;239;68;68m',
-  gray:   '\x1b[38;2;136;136;160m',
-  white:  '\x1b[37m',
-  cyan:   '\x1b[38;2;34;211;238m',
-  yellow: '\x1b[38;2;250;204;21m',
+// ── ANSI ──────────────────────────────────────────────────────────────────
+const ESC = '\x1b[';
+const R   = '\x1b[0m';
+const clr = {
+  bold:    s => `\x1b[1m${s}${R}`,
+  dim:     s => `\x1b[2m${s}${R}`,
+  orange:  s => `\x1b[38;2;210;118;60m${s}${R}`,
+  white:   s => `\x1b[97m${s}${R}`,
+  gray:    s => `\x1b[38;2;128;128;148m${s}${R}`,
+  green:   s => `\x1b[38;2;80;200;140m${s}${R}`,
+  red:     s => `\x1b[38;2;220;60;60m${s}${R}`,
+  blue:    s => `\x1b[38;2;90;160;240m${s}${R}`,
+  yellow:  s => `\x1b[38;2;220;180;60m${s}${R}`,
+  cyan:    s => `\x1b[38;2;60;200;220m${s}${R}`,
+  bgDark:  s => `\x1b[48;2;24;24;32m${s}${R}`,
 };
 
-const p = (msg, color = C.white) => process.stdout.write(`${color}${msg}${C.reset}\n`);
-const pr = (msg, color = C.white) => process.stdout.write(`${color}${msg}${C.reset}`);
-const ok  = msg => p(`  ${C.green}✓${C.reset}  ${msg}`);
-const err = msg => p(`  ${C.red}✗${C.reset}  ${msg}`);
-const inf = msg => p(`  ${C.blue}→${C.reset}  ${msg}`);
-const dim = msg => p(`  ${C.gray}${msg}${C.reset}`);
-const nl  = () => p('');
+const W = process.stdout.columns || 72;
 
-// ── readline helpers ───────────────────────────────────────────────────────
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const ask = (q) => new Promise(res => rl.question(q, a => res(a.trim())));
+const out   = s => process.stdout.write(s + '\n');
+const outr  = s => process.stdout.write(s);
+const blank = () => out('');
 
-async function choose(prompt, options, defaultIdx = 0) {
-  nl();
-  p(`  ${C.bold}${prompt}${C.reset}`);
-  options.forEach((o, i) => {
-    const bullet = i === defaultIdx ? `${C.green}▶${C.reset}` : `${C.gray}•${C.reset}`;
-    p(`  ${bullet}  [${i + 1}]  ${o.label}  ${o.hint ? C.gray + o.hint + C.reset : ''}`);
-  });
-  nl();
-  const raw = await ask(`  ${C.cyan}Enter number (default ${defaultIdx + 1}):${C.reset}  `);
-  const idx = raw === '' ? defaultIdx : parseInt(raw, 10) - 1;
-  return options[Math.min(Math.max(idx, 0), options.length - 1)];
+function rule(char = '─', color = clr.dim) {
+  out(color('  ' + char.repeat(Math.min(W - 4, 68))));
 }
 
-async function secret(prompt) {
+function box(lines, style = 'single') {
+  const width = Math.min(W - 4, 68);
+  const tl = '╭', tr = '╮', bl = '╰', br = '╯', h = '─', v = '│';
+  out('  ' + clr.dim(tl + h.repeat(width - 2) + tr));
+  for (const l of lines) {
+    const stripped = l.replace(/\x1b\[[0-9;]*m/g, '');
+    const pad = width - 4 - stripped.length;
+    out('  ' + clr.dim(v) + '  ' + l + ' '.repeat(Math.max(0, pad)) + '  ' + clr.dim(v));
+  }
+  out('  ' + clr.dim(bl + h.repeat(width - 2) + br));
+}
+
+// ── readline ──────────────────────────────────────────────────────────────
+let _rl;
+function getRl() {
+  if (!_rl) _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return _rl;
+}
+const ask = q => new Promise(res => getRl().question(q, a => res(a.trim())));
+
+async function askSecret(label) {
+  outr(`  ${clr.cyan('❯')} ${label}: `);
   return new Promise(res => {
-    process.stdout.write(`  ${C.cyan}${prompt}${C.reset}  `);
     let val = '';
-    process.stdin.setRawMode(true);
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', function handler(ch) {
+    const handler = ch => {
       if (ch === '\r' || ch === '\n') {
-        process.stdin.setRawMode(false);
+        if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw || false);
         process.stdin.pause();
         process.stdin.removeListener('data', handler);
-        process.stdout.write('\n');
+        out('');
         res(val.trim());
       } else if (ch === '\u0003') {
         process.exit();
       } else if (ch === '\u007f') {
-        val = val.slice(0, -1);
+        if (val.length) { val = val.slice(0, -1); outr('\b \b'); }
       } else {
         val += ch;
-        process.stdout.write('•');
+        outr(clr.dim('•'));
       }
-    });
+    };
+    process.stdin.on('data', handler);
   });
 }
 
-// ── Banner ─────────────────────────────────────────────────────────────────
-function banner() {
-  p('');
-  p(`${C.purple}  ┌────────────────────────────────────────────────────┐${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.bold}${C.green}AgentDOM${C.reset}  ${C.gray}—  Universal Runtime for AI Agents${C.reset}   ${C.purple}│${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.dim}Browser · Desktop · REST · MCP · Any LLM${C.reset}       ${C.purple}│${C.reset}`);
-  p(`${C.purple}  └────────────────────────────────────────────────────┘${C.reset}`);
-  p('');
-  p(`  ${C.dim}This wizard sets up AgentDOM in ~2 minutes.${C.reset}`);
-  p(`  ${C.dim}Press Ctrl‑C at any time to cancel.${C.reset}`);
-  p('');
+// Key/value status row
+function row(label, value, status = 'ok') {
+  const icon = status === 'ok'  ? clr.green('✓')
+             : status === 'err' ? clr.red('✗')
+             : status === 'warn'? clr.yellow('!')
+             :                    clr.dim('·');
+  const lpad = ' '.repeat(Math.max(0, 16 - label.length));
+  out(`  ${icon}  ${clr.dim(label)}${lpad} ${clr.white(value)}`);
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-const WALLET_FILE = path.join(os.homedir(), '.agentdom', 'wallet.json');
-const CONFIG_FILE = path.join(os.homedir(), '.agentdom', 'config.json');
+// Spinner (simple progress dots)
+async function withSpinner(msg, fn) {
+  outr(`  ${clr.dim('⟳')}  ${clr.dim(msg)}`);
+  const interval = setInterval(() => outr(clr.dim('.')), 400);
+  try {
+    const r = await fn();
+    clearInterval(interval);
+    out('  ' + clr.green('done'));
+    return r;
+  } catch (e) {
+    clearInterval(interval);
+    out('  ' + clr.red('failed'));
+    throw e;
+  }
+}
 
-function readWallet() {
-  try { return JSON.parse(fs.readFileSync(WALLET_FILE, 'utf-8')); } catch { return { providers: {} }; }
-}
-function saveWallet(w) {
-  fs.mkdirSync(path.dirname(WALLET_FILE), { recursive: true });
-  fs.writeFileSync(WALLET_FILE, JSON.stringify(w, null, 2));
-}
-function readConfig() {
-  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')); } catch { return {}; }
-}
-function saveConfig(c) {
-  fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(c, null, 2));
-}
+// ── Paths ─────────────────────────────────────────────────────────────────
+const AGENTDOM_DIR = path.join(os.homedir(), '.agentdom');
+const WALLET_FILE  = path.join(AGENTDOM_DIR, 'wallet.json');
+const CONFIG_FILE  = path.join(AGENTDOM_DIR, 'config.json');
+
+function readWallet() { try { return JSON.parse(fs.readFileSync(WALLET_FILE, 'utf-8')); } catch { return { providers: {} }; } }
+function saveWallet(w) { fs.mkdirSync(AGENTDOM_DIR, { recursive: true }); fs.writeFileSync(WALLET_FILE, JSON.stringify(w, null, 2)); }
+function readConfig() { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')); } catch { return {}; } }
+function saveConfig(c) { fs.mkdirSync(AGENTDOM_DIR, { recursive: true }); fs.writeFileSync(CONFIG_FILE, JSON.stringify(c, null, 2)); }
 
 function storeKey(provider, key, type = 'api_key') {
   const w = readWallet();
-  w.providers = w.providers || {};
-  w.providers[provider] = { type, token: key, stored_at: new Date().toISOString() };
+  (w.providers = w.providers || {})[provider] = { type, token: key, stored_at: new Date().toISOString() };
   saveWallet(w);
 }
-
-function isProviderSet(provider) {
-  const w = readWallet();
-  return !!(w.providers?.[provider]?.token);
-}
+function isProviderSet(p) { return !!(readWallet().providers?.[p]?.token); }
 
 async function cdpAvailable() {
-  try {
-    const r = await fetch('http://localhost:9222/json', { signal: AbortSignal.timeout(800) });
-    return r.ok;
-  } catch { return false; }
+  try { return (await fetch('http://localhost:9222/json', { signal: AbortSignal.timeout(800) })).ok; } catch { return false; }
 }
 
-// ── Step 1 — LLM provider ─────────────────────────────────────────────────
-async function setupLLM() {
-  p(`\n  ${C.bold}${C.yellow}Step 1 of 4 — LLM Provider${C.reset}\n`);
-  p(`  ${C.dim}AgentDOM needs a language model to reason about goals.${C.reset}`);
+// ── Banner ────────────────────────────────────────────────────────────────
+function banner() {
+  // Clear screen for fresh feel
+  process.stdout.write('\x1bc'); // soft reset (clears scroll without flicker)
+  blank();
 
-  const providers = [
-    { label: 'OpenRouter  (300+ models, single API key)', hint: 'openrouter.ai', key: 'openrouter' },
-    { label: 'OpenAI     (GPT‑4o / GPT‑4‑turbo)',         hint: 'platform.openai.com', key: 'openai' },
-    { label: 'Anthropic  (Claude Sonnet / Haiku)',         hint: 'console.anthropic.com', key: 'anthropic' },
-    { label: 'Ollama     (local, free, private)',          hint: 'ollama.com', key: 'ollama' },
-    { label: 'Skip       (I already set env vars)',        hint: '', key: 'skip' },
+  // Logo row — diamond + name (Claude‑Code style)
+  out(`  ${clr.orange('◆')}  ${clr.bold(clr.white('AgentDOM'))}  ${clr.dim('v3.5.4')}`);
+  blank();
+
+  // Info bar (like Claude's model / cwd line)
+  const cwd     = process.cwd().replace(os.homedir(), '~');
+  const cfg     = readConfig();
+  const model   = cfg.llm?.model ?? clr.dim('no model set');
+  const wallet  = readWallet();
+  const nprov   = Object.keys(wallet.providers || {}).length;
+
+  out(`  ${clr.dim('model')}  ${clr.cyan(model)}    ${clr.dim('integrations')}  ${clr.cyan(String(nprov))}    ${clr.dim('cwd')}  ${clr.dim(cwd.slice(0, 32))}`);
+  rule();
+}
+
+// ── Prompt helper ─────────────────────────────────────────────────────────
+async function prompt(question, defaultVal = '') {
+  const hint = defaultVal ? clr.dim(` (${defaultVal})`) : '';
+  const ans  = await ask(`  ${clr.cyan('❯')} ${question}${hint}: `);
+  return ans || defaultVal;
+}
+
+async function confirmYN(question, def = true) {
+  const hint = def ? 'Y/n' : 'y/N';
+  const ans  = await ask(`  ${clr.cyan('❯')} ${question} ${clr.dim('[' + hint + ']')}: `);
+  return ans === '' ? def : ans.toLowerCase().startsWith('y');
+}
+
+async function pickOne(question, items) {
+  blank();
+  out(`  ${clr.bold(question)}`);
+  blank();
+  items.forEach((item, i) => {
+    const num = clr.orange(`[${i + 1}]`);
+    const desc = item.hint ? `  ${clr.dim(item.hint)}` : '';
+    out(`     ${num}  ${item.label}${desc}`);
+  });
+  blank();
+  const raw = await ask(`  ${clr.cyan('❯')} Choose${clr.dim(` 1–${items.length}`)}: `);
+  const idx = parseInt(raw, 10) - 1;
+  return items[Math.min(Math.max(isNaN(idx) ? 0 : idx, 0), items.length - 1)];
+}
+
+// ── Step 1: LLM ───────────────────────────────────────────────────────────
+async function setupLLM() {
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◈'))}  ${clr.bold('LLM Provider')}  ${clr.dim('step 1 of 4')}`);
+  rule('─');
+  blank();
+  out(`  ${clr.dim('AgentDOM needs a language model to reason about your goals.')}`);
+
+  const PROVIDERS = [
+    { label: 'OpenRouter',  hint: '300+ models, one key — openrouter.ai',       key: 'openrouter', envVar: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys',              model: 'anthropic/claude-sonnet-4-5' },
+    { label: 'Anthropic',   hint: 'Claude Sonnet / Haiku — console.anthropic.com', key: 'anthropic', envVar: 'ANTHROPIC_API_KEY',  url: 'https://console.anthropic.com/settings/keys', model: 'claude-3-5-sonnet-20241022' },
+    { label: 'OpenAI',      hint: 'GPT-4o / GPT-4-turbo — platform.openai.com', key: 'openai',     envVar: 'OPENAI_API_KEY',      url: 'https://platform.openai.com/api-keys',    model: 'gpt-4o' },
+    { label: 'Ollama',      hint: 'local & free — ollama.com',                   key: 'ollama',     envVar: null,                  url: null,                                      model: 'llama3' },
+    { label: 'Skip',        hint: 'env vars already set',                         key: 'skip',       envVar: null,                  url: null,                                      model: null },
   ];
 
-  const choice = await choose('Which LLM provider do you want to use?', providers);
-
-  if (choice.key === 'skip') {
-    ok('Skipping — will use existing OPENROUTER_API_KEY / OPENAI_API_KEY env vars');
-    return;
+  // Detect existing
+  const detected = PROVIDERS.find(p => p.envVar && process.env[p.envVar]);
+  if (detected) {
+    blank();
+    row(detected.label, 'already configured', 'ok');
+    const keep = await confirmYN('Keep existing key?');
+    if (keep) return;
   }
+
+  const choice = await pickOne('Which LLM provider?', PROVIDERS);
+  if (choice.key === 'skip') { row('LLM', 'skipped', 'warn'); return; }
 
   if (choice.key === 'ollama') {
-    nl();
-    inf('Ollama runs locally. Make sure it is running: `ollama serve`');
-    const model = await ask(`  ${C.cyan}Ollama model name (default: llama3):${C.reset}  `);
-    const cfg = readConfig();
-    cfg.llm = { provider: 'ollama', model: model || 'llama3', base_url: 'http://localhost:11434' };
-    saveConfig(cfg);
-    ok(`Saved: ollama/${model || 'llama3'}`);
+    const model = await prompt('Ollama model name', 'llama3');
+    const cfg = readConfig(); cfg.llm = { provider: 'ollama', model, base_url: 'http://localhost:11434' }; saveConfig(cfg);
+    row('Ollama', model, 'ok');
     return;
   }
 
-  const keyUrls = {
-    openrouter: 'https://openrouter.ai/keys',
-    openai:     'https://platform.openai.com/api-keys',
-    anthropic:  'https://console.anthropic.com/settings/keys',
-  };
+  blank();
+  out(`  ${clr.dim('Get your key at')}  ${clr.cyan(choice.url)}`);
+  blank();
+  const key = await askSecret(`${choice.label} API key`);
+  if (!key) { row(choice.label, 'skipped', 'warn'); return; }
 
-  const envVars = {
-    openrouter: 'OPENROUTER_API_KEY',
-    openai:     'OPENAI_API_KEY',
-    anthropic:  'ANTHROPIC_API_KEY',
-  };
+  storeKey(`${choice.key}.com`, key);
+  process.env[choice.envVar] = key;
 
-  nl();
-  inf(`Get your API key at: ${C.cyan}${keyUrls[choice.key]}${C.reset}`);
-  nl();
-  const key = await secret(`Paste your ${choice.label.split(' ')[0]} API key:`);
-
-  if (!key) { err('No key entered — skipping'); return; }
-
-  // Save to wallet AND write to shell profile
-  storeKey(choice.hint || `${choice.key}.com`, key, 'api_key');
-
-  const envVar = envVars[choice.key];
-  const shellLine = `export ${envVar}="${key}"`;
   const profile = path.join(os.homedir(), '.zshenv');
   const existing = fs.existsSync(profile) ? fs.readFileSync(profile, 'utf-8') : '';
-  if (!existing.includes(envVar)) {
-    fs.appendFileSync(profile, `\n# AgentDOM — added by agentdom onboard\n${shellLine}\n`);
-    inf(`Added to ~/.zshenv: ${envVar}`);
+  if (!existing.includes(choice.envVar)) {
+    fs.appendFileSync(profile, `\n# AgentDOM\nexport ${choice.envVar}="${key}"\n`);
   }
 
-  // Also set for current process
-  process.env[envVar] = key;
-
-  // Save model preference
-  const modelMap = {
-    openrouter: 'anthropic/claude-sonnet-4-5',
-    openai:     'gpt-4o',
-    anthropic:  'claude-3-5-sonnet-20241022',
-  };
-  const cfg = readConfig();
-  cfg.llm = { provider: choice.key, model: modelMap[choice.key], env_var: envVar };
-  saveConfig(cfg);
-
-  ok(`${choice.label.split(' ')[0]} key saved  (${key.slice(0, 8)}…)`);
+  const cfg = readConfig(); cfg.llm = { provider: choice.key, model: choice.model, env_var: choice.envVar }; saveConfig(cfg);
+  row(choice.label, `${key.slice(0, 8)}…  saved`, 'ok');
 }
 
-// ── Step 2 — Integrations ─────────────────────────────────────────────────
+// ── Step 2: Integrations ──────────────────────────────────────────────────
 const INTEGRATIONS = [
-  { label: 'GitHub',   provider: 'github.com',   hint: 'Issues, PRs, repos' },
-  { label: 'Linear',   provider: 'linear.app',   hint: 'Project management' },
-  { label: 'Slack',    provider: 'slack.com',     hint: 'Messaging / channels' },
-  { label: 'Notion',   provider: 'notion.so',     hint: 'Docs and databases' },
-  { label: 'Jira',     provider: 'jira.atlassian.net', hint: 'Tickets and sprints' },
-  { label: 'Resend',   provider: 'resend.com',    hint: 'Email sending' },
-  { label: 'Stripe',   provider: 'stripe.com',    hint: 'Payments' },
+  { label: 'GitHub',  provider: 'github.com',          hint: 'issues · PRs · repos' },
+  { label: 'Linear',  provider: 'linear.app',           hint: 'project management' },
+  { label: 'Slack',   provider: 'slack.com',            hint: 'messaging · channels' },
+  { label: 'Notion',  provider: 'notion.so',            hint: 'docs · databases' },
+  { label: 'Resend',  provider: 'resend.com',           hint: 'email sending' },
+  { label: 'Jira',    provider: 'jira.atlassian.net',   hint: 'tickets · sprints' },
 ];
 
 async function setupIntegrations() {
-  p(`\n  ${C.bold}${C.yellow}Step 2 of 4 — Integrations${C.reset}\n`);
-  p(`  ${C.dim}Connect the tools your agent will act on. Press Enter to skip any.${C.reset}`);
-  nl();
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◈'))}  ${clr.bold('Integrations')}  ${clr.dim('step 2 of 4')}`);
+  rule('─');
+  blank();
+  out(`  ${clr.dim('Connect the services your agent will act on. Press Enter to skip any.')}`);
+  blank();
 
   const alreadySet = INTEGRATIONS.filter(i => isProviderSet(i.provider));
-  if (alreadySet.length) {
-    ok(`Already set up: ${alreadySet.map(i => i.label).join(', ')}`);
-  }
+  if (alreadySet.length) row('configured', alreadySet.map(i => i.label).join('  '), 'ok');
+  blank();
 
-  for (const integration of INTEGRATIONS) {
-    if (isProviderSet(integration.provider)) continue;
-
-    const yn = await ask(
-      `  ${C.bold}${integration.label}${C.reset} ${C.gray}(${integration.hint})${C.reset}  ${C.cyan}Set up? [y/N]:${C.reset}  `
-    );
-    if (!yn.toLowerCase().startsWith('y')) {
-      dim(`  Skipped ${integration.label}`);
-      continue;
-    }
-
-    nl();
-    inf(`Running: agentdom setup ${integration.provider}`);
-
+  for (const ig of INTEGRATIONS) {
+    if (isProviderSet(ig.provider)) continue;
+    const yn = await confirmYN(`Set up ${clr.bold(ig.label)}  ${clr.dim(ig.hint)}?`, false);
+    if (!yn) { row(ig.label, 'skipped', 'dim'); continue; }
+    blank();
     try {
-      // Spawn the existing setup command
-      const setupCmd = path.join(__dirname, '..', 'cli.js');
-      execSync(`node "${setupCmd}" setup "${integration.provider}" 2>&1`, {
-        stdio: 'inherit',
-        env: process.env,
-      });
-    } catch (e) {
-      err(`Setup failed for ${integration.label}: ${e.message.slice(0, 60)}`);
-    }
-    nl();
+      execSync(`node "${path.join(__dirname, '..', 'cli.js')}" setup "${ig.provider}"`, { stdio: 'inherit', env: process.env });
+      row(ig.label, 'configured', 'ok');
+    } catch { row(ig.label, 'failed — re-run: agentdom setup ' + ig.provider, 'err'); }
+    blank();
   }
 }
 
-// ── Step 3 — Browser (Chrome CDP) ─────────────────────────────────────────
+// ── Step 3: Browser ───────────────────────────────────────────────────────
 async function setupBrowser() {
-  p(`\n  ${C.bold}${C.yellow}Step 3 of 4 — Browser (Chrome CDP)${C.reset}\n`);
-  p(`  ${C.dim}AgentDOM controls Chrome via CDP for browser actions.${C.reset}`);
-  nl();
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◈'))}  ${clr.bold('Browser (Chrome CDP)')}  ${clr.dim('step 3 of 4')}`);
+  rule('─');
+  blank();
+  out(`  ${clr.dim('AgentDOM controls Chrome via CDP for any browser task.')}`);
+  blank();
 
-  const available = await cdpAvailable();
-
-  if (available) {
-    ok('Chrome CDP already running on localhost:9222');
-    return;
-  }
-
-  err('Chrome not detected on localhost:9222');
-  nl();
+  if (await cdpAvailable()) { row('Chrome CDP', 'running on :9222', 'ok'); return; }
+  row('Chrome CDP', 'not detected', 'err');
+  blank();
 
   const chromePaths = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -287,183 +294,159 @@ async function setupBrowser() {
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
   ].filter(fs.existsSync);
 
-  if (chromePaths.length === 0) {
-    err('No Chrome / Chromium found. Install from https://google.com/chrome');
-    inf('Once installed, start it with:');
-    p(`  ${C.cyan}/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\${C.reset}`);
-    p(`  ${C.cyan}  --remote-debugging-port=9222 --user-data-dir=/tmp/agentdom-profile${C.reset}`);
+  if (!chromePaths.length) {
+    out(`  ${clr.dim('Install Chrome from')} ${clr.cyan('https://google.com/chrome')} ${clr.dim('then run:')}`);
+    blank();
+    out(`  ${clr.dim('/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\')}`);
+    out(`  ${clr.dim('  --remote-debugging-port=9222 --user-data-dir=/tmp/agentdom-profile')}`);
     return;
   }
 
-  const choice = await choose(
-    'Start Chrome for AgentDOM now?',
-    [
-      { label: 'Yes — launch Chrome with CDP (port 9222)', hint: '' },
-      { label: 'No  — I\'ll start it manually',            hint: '' },
-    ]
-  );
-
-  if (choice.label.startsWith('No')) {
-    nl();
-    inf('Start Chrome manually with:');
-    p(`  ${C.cyan}"${chromePaths[0]}" --remote-debugging-port=9222 --user-data-dir=/tmp/agentdom-profile &${C.reset}`);
+  const launch = await confirmYN('Launch Chrome with CDP now?');
+  if (!launch) {
+    blank();
+    out(`  ${clr.dim('Start manually:')}`);
+    out(`  ${clr.cyan(`"${chromePaths[0]}" --remote-debugging-port=9222 --user-data-dir=/tmp/agentdom-profile &`)}`);
     return;
   }
 
-  nl();
-  inf(`Launching Chrome from: ${chromePaths[0]}`);
   exec(`"${chromePaths[0]}" --remote-debugging-port=9222 --user-data-dir=/tmp/agentdom-profile`);
-
-  // Wait for CDP to come up
-  pr(`  ${C.gray}Waiting for Chrome`, C.gray);
+  outr(`  ${clr.dim('Starting Chrome')}`);
   for (let i = 0; i < 15; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    pr('.', C.gray);
-    if (await cdpAvailable()) { nl(); ok('Chrome started on :9222'); return; }
+    await new Promise(r => setTimeout(r, 500)); outr(clr.dim('.'));
+    if (await cdpAvailable()) { out(''); row('Chrome CDP', 'started on :9222', 'ok'); return; }
   }
-  nl();
-  err('Chrome did not start in time — try manually');
+  out('');
+  row('Chrome CDP', 'did not start — try manually', 'err');
 }
 
-// ── Step 4 — Test run ─────────────────────────────────────────────────────
+// ── Step 4: Test run ──────────────────────────────────────────────────────
 async function testRun() {
-  p(`\n  ${C.bold}${C.yellow}Step 4 of 4 — Smoke Test${C.reset}\n`);
-  p(`  ${C.dim}Running a quick goal to confirm everything works.${C.reset}`);
-  nl();
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◈'))}  ${clr.bold('Smoke Test')}  ${clr.dim('step 4 of 4')}`);
+  rule('─');
+  blank();
+  out(`  ${clr.dim('Runs a real goal to confirm AgentDOM is working end-to-end.')}`);
+  blank();
 
   const goal = 'Go to https://news.ycombinator.com and tell me the title and score of the top story.';
+  out(`  ${clr.dim('goal')}  ${clr.white(goal)}`);
+  blank();
 
-  inf(`Goal: "${goal}"`);
-  nl();
+  const run = await confirmYN('Run this test now?');
+  if (!run) { row('smoke test', 'skipped', 'warn'); return; }
+  blank();
 
-  const yn = await ask(`  ${C.cyan}Run this test now? [Y/n]:${C.reset}  `);
-  if (yn.toLowerCase().startsWith('n')) {
-    dim('Skipped test — you can run it later with: agentdom run "..."');
-    return;
-  }
-
-  nl();
-  const cliPath = path.join(__dirname, '..', 'cli.js');
   try {
-    execSync(`node "${cliPath}" run "${goal}"`, { stdio: 'inherit', env: process.env });
-  } catch (e) {
-    err(`Test run failed: ${e.message.slice(0, 80)}`);
-    inf('If you see an LLM error, check your API key. If browser fails, re-run step 3.');
+    execSync(`node "${path.join(__dirname, '..', 'cli.js')}" run "${goal}"`, { stdio: 'inherit', env: process.env });
+    blank();
+    row('smoke test', 'passed', 'ok');
+  } catch {
+    row('smoke test', 'failed — check LLM key / Chrome', 'err');
   }
 }
 
-// ── Export wallet for CI ───────────────────────────────────────────────────
+// ── CI export ─────────────────────────────────────────────────────────────
 async function exportWallet() {
-  nl();
-  p(`  ${C.bold}${C.purple}Optional — Export wallet for CI/Docker${C.reset}\n`);
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◈'))}  ${clr.bold('Export for CI / Docker')}  ${clr.dim('optional')}`);
+  rule('─');
+  blank();
+  out(`  ${clr.dim('Encodes your wallet as base64 for AGENTDOM_WALLET_B64 env var.')}`);
+  blank();
 
-  const yn = await ask(`  ${C.cyan}Export wallet as base64 (for CI env vars)? [y/N]:${C.reset}  `);
-  if (!yn.toLowerCase().startsWith('y')) return;
+  const yn = await confirmYN('Export wallet now?', false);
+  if (!yn) return;
 
-  const wallet = readWallet();
-  const providers = Object.keys(wallet.providers || {});
-  if (!providers.length) { dim('No providers in wallet to export'); return; }
+  const w = readWallet();
+  if (!Object.keys(w.providers || {}).length) { row('wallet', 'empty — nothing to export', 'warn'); return; }
 
-  const b64 = Buffer.from(JSON.stringify(wallet)).toString('base64');
-  nl();
-  p(`  ${C.bold}Copy this into your CI secret named AGENTDOM_WALLET_B64:${C.reset}`);
-  nl();
-  p(`  ${C.green}${b64.slice(0, 80)}…${C.reset}  ${C.gray}(${b64.length} chars total)${C.reset}`);
-  nl();
-
-  // Write to file
-  const outFile = path.join(os.homedir(), '.agentdom', 'wallet.b64');
+  const b64 = Buffer.from(JSON.stringify(w)).toString('base64');
+  const outFile = path.join(AGENTDOM_DIR, 'wallet.b64');
   fs.writeFileSync(outFile, `AGENTDOM_WALLET_B64=${b64}\n`);
-  ok(`Full base64 saved to: ${outFile}`);
-  inf('Add it as a repo secret at: https://github.com/settings/tokens');
-  nl();
+
+  blank();
+  out(`  ${clr.dim('Set this in your CI secret named')} ${clr.bold('AGENTDOM_WALLET_B64')}`);
+  blank();
+  out(`  ${clr.dim('Saved to:')}  ${clr.cyan(outFile)}`);
+  out(`  ${clr.dim('Preview:')}   ${clr.dim(b64.slice(0, 60))}${clr.dim('…')}`);
 }
 
 // ── Summary ────────────────────────────────────────────────────────────────
 function summary() {
-  const w = readWallet();
+  const w   = readWallet();
   const cfg = readConfig();
-  const providers = Object.keys(w.providers || {});
+  const provs = Object.keys(w.providers || {});
 
-  nl();
-  p(`${C.purple}  ┌──────────────── Setup Complete ──────────────────┐${C.reset}`);
-  p(`${C.purple}  │${C.reset}`);
+  blank();
+  rule('─');
+  out(`  ${clr.bold(clr.orange('◆'))}  ${clr.bold('Setup complete')}`);
+  rule('─');
+  blank();
 
-  if (cfg.llm) {
-    p(`${C.purple}  │${C.reset}  ${C.green}✓${C.reset}  LLM: ${C.bold}${cfg.llm.provider}/${cfg.llm.model}${C.reset}`);
-  }
-  if (providers.length) {
-    p(`${C.purple}  │${C.reset}  ${C.green}✓${C.reset}  Integrations: ${C.bold}${providers.join(', ')}${C.reset}`);
-  }
+  if (cfg.llm)    row('model',        `${cfg.llm.provider}/${cfg.llm.model}`, 'ok');
+  if (provs.length) row('integrations', provs.join('  '), 'ok');
+  row('docs',       'https://docs.getagentdom.com', 'dim');
 
-  p(`${C.purple}  │${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.bold}Quick start:${C.reset}`);
-  p(`${C.purple}  │${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.cyan}agentdom run "Open Notion and create a page titled Hello World"${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.cyan}agentdom run "Create a GitHub issue in my repo about X"${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.cyan}agentdom doctor${C.reset}              ${C.gray}# health check${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.cyan}agentdom wallet export --base64${C.reset} ${C.gray}# for CI${C.reset}`);
-  p(`${C.purple}  │${C.reset}`);
-  p(`${C.purple}  │${C.reset}  ${C.dim}Docs: https://docs.getagentdom.com${C.reset}`);
-  p(`${C.purple}  └──────────────────────────────────────────────────┘${C.reset}`);
-  nl();
+  blank();
+  out(`  ${clr.bold('Quick start')}`);
+  blank();
+  out(`  ${clr.orange('$')}  ${clr.white('agentdom run')} ${clr.dim('"Create a GitHub issue in my repo about X"')}`);
+  out(`  ${clr.orange('$')}  ${clr.white('agentdom run')} ${clr.dim('"Open Notion and create a page titled Hello World"')}`);
+  out(`  ${clr.orange('$')}  ${clr.white('agentdom doctor')}          ${clr.dim('# health check')}`);
+  out(`  ${clr.orange('$')}  ${clr.white('agentdom wallet export')}   ${clr.dim('# CI export')}`);
+  blank();
+  rule('─');
+  blank();
 }
 
-// ── Doctor command ─────────────────────────────────────────────────────────
+// ── Doctor ────────────────────────────────────────────────────────────────
 async function doctor() {
   banner();
-  p(`  ${C.bold}${C.yellow}agentdom doctor  —  Health Check${C.reset}\n`);
+  out(`  ${clr.bold('agentdom doctor')}  ${clr.dim('— health check')}`);
+  blank();
 
-  // LLM
   const cfg = readConfig();
-  const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
-  const hasOpenAI     = !!process.env.OPENAI_API_KEY;
-  const hasAnthropic  = !!process.env.ANTHROPIC_API_KEY;
-  const hasLLM        = hasOpenRouter || hasOpenAI || hasAnthropic || cfg.llm?.provider === 'ollama';
-  hasLLM ? ok('LLM configured') : err('No LLM key found — run: agentdom onboard');
+  const w   = readWallet();
 
-  // Chrome
+  const hasLLM = !!(process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY || cfg.llm?.provider === 'ollama');
+  row('LLM',          hasLLM ? (cfg.llm ? `${cfg.llm.provider}/${cfg.llm.model}` : 'env var set') : 'not configured — run: agentdom onboard', hasLLM ? 'ok' : 'err');
+
   const browser = await cdpAvailable();
-  browser ? ok('Chrome CDP running on :9222') : err('Chrome CDP not found — start Chrome with --remote-debugging-port=9222');
+  row('Chrome CDP',   browser ? 'running on :9222' : 'not found — start with --remote-debugging-port=9222', browser ? 'ok' : 'err');
 
-  // Wallet
-  const w = readWallet();
-  const providers = Object.keys(w.providers || {});
-  providers.length
-    ? ok(`Wallet: ${providers.join(', ')}`)
-    : inf('No integrations set up — run: agentdom onboard');
+  const provs = Object.keys(w.providers || {});
+  row('integrations', provs.length ? provs.join('  ') : 'none — run: agentdom onboard', provs.length ? 'ok' : 'warn');
 
-  // Node version
-  const nodeVer = parseInt(process.version.slice(1));
-  nodeVer >= 20 ? ok(`Node ${process.version}`) : err(`Node ${process.version} is old — upgrade to v20+`);
+  const nodeOk = parseInt(process.version.slice(1)) >= 20;
+  row('Node.js',      process.version, nodeOk ? 'ok' : 'err');
 
-  nl();
-  if (!hasLLM || !browser) {
-    inf('Fix issues above, then run: agentdom run "goal: ..."');
+  row('config dir',   AGENTDOM_DIR, 'dim');
+
+  blank();
+  if (hasLLM && browser) {
+    out(`  ${clr.green('✓')}  ${clr.bold('AgentDOM is ready.')}`);
   } else {
-    ok('All checks passed — AgentDOM is ready!');
+    out(`  ${clr.yellow('!')}  ${clr.dim('Fix the errors above, then run:')}  ${clr.cyan('agentdom run "your goal"')}`);
   }
-  nl();
+  blank();
 }
 
-// ── Main entry ─────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────
 async function main(args = []) {
-  if (args.includes('doctor') || args.includes('--doctor')) {
+  if (args.includes('--doctor') || args.includes('doctor')) {
     await doctor();
-    rl.close();
-    return;
+    process.exit(0);
   }
 
   banner();
-  p(`  ${C.dim}This is a one‑time setup. Re‑run anytime to add more integrations.${C.reset}`);
-  nl();
+  out(`  ${clr.dim('First-time setup. Re-run anytime to add integrations.')}`);
+  blank();
 
-  const yn = await ask(`  ${C.cyan}Ready to get started? [Y/n]:${C.reset}  `);
-  if (yn.toLowerCase().startsWith('n')) {
-    p('\n  Cancelled. Run again anytime with: agentdom onboard\n');
-    rl.close();
-    return;
-  }
+  const go = await confirmYN('Continue?');
+  if (!go) { out('\n  Cancelled. Run again with: agentdom onboard\n'); process.exit(0); }
 
   await setupLLM();
   await setupIntegrations();
@@ -472,15 +455,11 @@ async function main(args = []) {
   await exportWallet();
   summary();
 
-  rl.close();
+  if (_rl) _rl.close();
 }
 
 module.exports = { main, doctor };
 
-// Run directly
 if (require.main === module) {
-  main(process.argv.slice(2)).catch(e => {
-    console.error(e);
-    process.exit(1);
-  });
+  main(process.argv.slice(2)).catch(e => { console.error(e); process.exit(1); });
 }

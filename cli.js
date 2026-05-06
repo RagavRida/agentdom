@@ -983,9 +983,8 @@ Next command:`;
 // ── Entry Point ──
 const args = process.argv.slice(2);
 if (args[0] === 'run') {
-  // Autonomous goal execution — the main agent entrypoint
-  process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
-  require('./lib/agent-runtime');
+  // Autonomous goal execution — wire directly to main() to bypass require.main check
+  require('./lib/agent-runtime').main(args.slice(1));
 } else if (args[0] === 'init') {
   // Synchronous scaffolder — short-circuit before puppeteer or anything heavy.
   require('./commands/init').run(args.slice(1));

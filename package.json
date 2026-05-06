@@ -1,7 +1,7 @@
 {
   "name": "agentdom",
-  "version": "3.5.3",
-  "description": "Universal AI agent protocol. Agents interact with any software — web, desktop, SaaS API, CLI — through a single semantic interface. No screenshots. No scraping.",
+  "version": "3.5.4",
+  "description": "Universal runtime for AI agents — browser, desktop, REST, MCP. OpenClaw-style onboarding.",
   "main": "agentdom.js",
   "bin": {
     "agentdom": "cli.js",

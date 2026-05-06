@@ -1001,6 +1001,14 @@ if (args[0] === 'run') {
   process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
   require('./commands/setup');
 
+// ── Onboard (OpenClaw-style interactive wizard) ───────────────────────────
+} else if (args[0] === 'onboard' || args[0] === 'init' && args[1] === '--wizard') {
+  require('./commands/onboard').main(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
+
+// ── Doctor (health check) ────────────────────────────────────────────────
+} else if (args[0] === 'doctor') {
+  require('./commands/onboard').doctor().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });
+
 // ── Wallet (provision / export / import credentials for agents) ───────────────
 } else if (args[0] === 'wallet') {
   process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];

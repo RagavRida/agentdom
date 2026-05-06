@@ -10,7 +10,15 @@
     "method": "api_key",
     "key_header": "Authorization",
     "key_format": "Bearer {token}",
-    "key_env": "OPENROUTER_API_KEY"
+    "key_env": "OPENROUTER_API_KEY",
+    "agent_tokens": {
+      "issue":  "POST https://openrouter.ai/api/v1/keys",
+      "revoke": "DELETE https://openrouter.ai/api/v1/keys/{id}",
+      "list":   "GET https://openrouter.ai/api/v1/keys",
+      "max_ttl_seconds": 2592000,
+      "scopes": ["chat", "models", "credits"],
+      "note": "Requires Provisioning API access (openrouter.ai/settings/provisioning)"
+    }
   },
   "capabilities": [
     {

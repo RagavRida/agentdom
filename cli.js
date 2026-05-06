@@ -1003,6 +1003,11 @@ if (args[0] === 'init') {
   process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
   require('./commands/wallet');
 
+// ── Agent Token Protocol ──────────────────────────────────────────────────────
+} else if (args[0] === 'agent-token') {
+  process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
+  require('./lib/agent-tokens');
+
 // ── Policy commands ─────────────────────────────────────────────────────────
 } else if (args[0] === 'approve') {
   const id = args[1];

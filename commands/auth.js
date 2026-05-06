@@ -80,11 +80,25 @@ function deleteProvider(host) {
 
 // ── Discovery ───────────────────────────────────────────────────────────────
 
+// In-process TTL cache — 5 min. Prevents repeated network fetches during
+// a single agentdom run session. Refreshes automatically on next process start.
+const _discoverCache = new Map(); // host → { result, ts }
+const DISCOVER_TTL_MS = 5 * 60 * 1000;
+
 /** Fetch the well-known manifest for a provider host (e.g. "hubspot.com").
- *  Falls back to bundled polyfill manifests when the remote endpoint is absent. */
+ *  Falls back to bundled polyfill manifests when the remote endpoint is absent.
+ *  Results are cached in-process for 5 minutes. */
 async function discover(provider, opts = {}) {
   const host = normalizeHost(provider);
   const url  = `https://${host}${WELL_KNOWN_PATH}`;
+
+  // Return from cache if fresh
+  if (!opts.noCache) {
+    const cached = _discoverCache.get(host);
+    if (cached && (Date.now() - cached.ts) < DISCOVER_TTL_MS) {
+      return cached.result;
+    }
+  }
 
   // 1. Try live .well-known/agentdom.json (quick, 1 retry)
   try {
@@ -92,7 +106,9 @@ async function discover(provider, opts = {}) {
     if (res.ok) {
       const manifest = await res.json();
       if (manifest.version || manifest.capabilities) {
-        return { manifest, source_url: url };
+        const result = { manifest, source_url: url };
+        _discoverCache.set(host, { result, ts: Date.now() });
+        return result;
       }
     }
   } catch (_) { /* unreachable or non-JSON — fall through */ }
@@ -103,7 +119,9 @@ async function discover(provider, opts = {}) {
     try {
       const manifest = JSON.parse(fs.readFileSync(localPath, 'utf-8'));
       console.log(`  ${host} — using bundled polyfill manifest`);
-      return { manifest, source_url: `polyfill:${host}` };
+      const result = { manifest, source_url: `polyfill:${host}` };
+      _discoverCache.set(host, { result, ts: Date.now() });
+      return result;
     } catch (e) {
       return { error: `Bundled polyfill for ${host} is malformed: ${e.message}` };
     }
@@ -145,9 +163,19 @@ function joinScopes(intents, scopesFor) {
   return [...s];
 }
 
-async function oauthFlow({ host, manifest, clientId, clientSecret, intents, timeoutMs = 300000 }) {
-  const auth = manifest.auth || {};
-  if (auth.method !== 'oauth2') throw new Error(`Provider ${host} does not advertise oauth2 auth.`);
+async function oauthFlow({ host, manifest, clientId, clientSecret, intents, timeoutMs = 300000, config }) {
+  // config can come from auto-detection (setup.js detectAuthMethod) or manifest
+  const auth = config || manifest?.auth || {};
+  const oauthMethods = ['oauth2', 'oauth2_pkce', 'oauth2_cc', 'oauth2_device', 'device_flow'];
+  if (!oauthMethods.includes(auth.method)) {
+    throw new Error(`Provider ${host} does not advertise OAuth auth (got: ${auth.method}).`);
+  }
+  // Resolve auth URLs — prefer config over manifest fields
+  const _authUrl  = auth.auth_url   || auth.authorize_url || manifest?.auth?.authorize_url;
+  const _tokenUrl = auth.token_url  || manifest?.auth?.token_url;
+  if (!_authUrl)  throw new Error(`No auth_url for ${host}. Provide it via manifest or auto-detected config.`);
+  if (!_tokenUrl) throw new Error(`No token_url for ${host}. Provide it via manifest or auto-detected config.`);
+
   if (auth.client_id_required && !clientId) {
     throw new Error(`Provider ${host} requires a client_id. Pass it via --client-id or env AGENTDOM_<HOST>_CLIENT_ID.`);
   }
@@ -200,10 +228,9 @@ async function oauthFlow({ host, manifest, clientId, clientSecret, intents, time
     state: csrf,
   });
   if (scopes.length) params.set('scope', scopes.join(' '));
-  const authUrl = `${auth.authorize_url}?${params}`;
-  info(`Opening browser to ${auth.authorize_url}…`);
+  info(`Opening browser to ${_authUrl}…`);
   info(`Local callback: ${redirectUri}`);
-  openInBrowser(authUrl);
+  openInBrowser(`${_authUrl}?${params}`);
 
   const code = await codePromise;
   ok('Authorization code received.');
@@ -217,7 +244,7 @@ async function oauthFlow({ host, manifest, clientId, clientSecret, intents, time
   });
   if (clientSecret) tokenBody.set('client_secret', clientSecret);
 
-  const tokRes = await fetch(auth.token_url, {
+  const tokRes = await fetch(_tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
     body: tokenBody,
@@ -236,7 +263,7 @@ async function oauthFlow({ host, manifest, clientId, clientSecret, intents, time
     expires_at: tok.expires_in ? new Date(Date.now() + tok.expires_in * 1000).toISOString() : null,
     scopes,
     client_id: clientId,
-    token_url: auth.token_url,
+    token_url: _tokenUrl,
   };
   setProvider(host, entry);
   return entry;
@@ -295,7 +322,7 @@ async function apiKeyFlow({ host, manifest, key }) {
 
 /** Authenticate to a provider. Reads its well-known manifest, runs the
  *  appropriate flow, persists the token. */
-async function auth({ provider, intents = [], clientId, clientSecret, key, force = false } = {}) {
+async function auth({ provider, intents = [], clientId, clientSecret, key, force = false, config } = {}) {
   if (!provider) throw new Error('auth requires { provider }');
   const host = normalizeHost(provider);
 
@@ -315,16 +342,16 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     }
   }
 
-  // 2. Try PKCE engine first (handles PKCE, device flow, API key interactively)
-  const pkceConfig = OAUTH_REGISTRY[host];
-  if (pkceConfig) {
+  // 2. Try PKCE engine (handles PKCE, device flow, API key interactively)
+  // config from setup.js auto-detection takes priority over static registry
+  const pkceConfig = config || OAUTH_REGISTRY[host];
+  if (pkceConfig && (pkceConfig.auth_url || pkceConfig.device_url || pkceConfig.client_id || pkceConfig.api_key_alt)) {
     try {
       const token = await pkceAuth(host, { forceReauth: force, config: pkceConfig });
-      // Mirror to file wallet for backwards compat
       setProvider(host, token);
       return { provider: host, ...sanitize(token), storage: await keychain.storageBackend() };
     } catch (e) {
-      console.error(`[AgentDOM] pkceAuth failed for ${host}: ${e.message} — trying manifest flow`);
+      console.error(`[AgentDOM] pkceAuth failed for ${host}: ${e.message} — falling back to manifest flow`);
     }
   }
 
@@ -339,9 +366,9 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     return { provider: host, method, no_auth_required: true };
   }
   if (method === 'oauth2' || method === 'oauth2_pkce' || method === 'oauth2_cc') {
-    clientId = clientId || m.auth.client_id || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
+    clientId = clientId || m.auth.client_id || config?.client_id || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
     clientSecret = clientSecret || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_SECRET`];
-    const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents });
+    const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, config: config || m.auth });
     await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
@@ -351,8 +378,7 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'device_flow' || method === 'oauth2_device') {
-    // Route through oauthFlow which handles device_url internally
-    const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, forceDevice: true });
+    const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, forceDevice: true, config: config || m.auth });
     await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }

@@ -1028,18 +1028,88 @@ if (args[0] === 'run') {
   const pol = require('./lib/policy');
   const sub = args[1];
   if (!sub || sub === 'show') {
-    console.log(JSON.stringify(pol.getPolicy(), null, 2));
+    const currentPolicy = pol.getPolicy();
+    console.log('\nCurrent policy:');
+    console.log(JSON.stringify(currentPolicy, null, 2));
     const pending = pol.listPending();
     if (pending.length) {
-      console.log(`\n${pending.length} pending approval(s):`);
-      pending.forEach(p => console.log(`  ${p.id}  ${p.intent || '—'}  ${p.provider || '—'}  (${new Date(p.created).toLocaleTimeString()})`));
+      console.log(`\n${C.orange}${pending.length} pending approval(s):${C.r}`);
+      pending.forEach(p => {
+        console.log(`  ${C.blue}${p.id}${C.r}  intent: ${p.intent || '—'}  provider: ${p.provider || '—'}  effects: ${(p.effects||[]).join(',')}  (${new Date(p.created).toLocaleTimeString()})`);
+        console.log(`         ${C.gray}agentdom policy approve ${p.id}${C.r}  or  ${C.gray}agentdom policy deny ${p.id}${C.r}`);
+      });
+    } else {
+      console.log(`${C.gray}No pending approvals.${C.r}`);
     }
   } else if (sub === 'pending') {
     const pending = pol.listPending();
     if (!pending.length) { console.log('No pending approvals.'); }
-    else pending.forEach(p => console.log(JSON.stringify(p, null, 2)));
+    else {
+      console.log(`${pending.length} pending approval(s):\n`);
+      pending.forEach(p => {
+        console.log(`  ID:       ${C.blue}${p.id}${C.r}`);
+        console.log(`  Intent:   ${p.intent || '—'}`);
+        console.log(`  Provider: ${p.provider || '—'}`);
+        console.log(`  Effects:  ${(p.effects||[]).join(', ')}`);
+        console.log(`  Created:  ${p.created}`);
+        console.log(`  Session:  ${p.session_id || '—'}`);
+        console.log(`  Approve:  agentdom policy approve ${p.id}`);
+        console.log();
+      });
+    }
+  } else if (sub === 'approve') {
+    const id = args[2];
+    if (!id) { console.error('Usage: agentdom policy approve <id>'); process.exit(1); }
+    const result = pol.approve(id);
+    if (result) { logS(`Approved: ${id}`); }
+    else { logE(`Pending item not found: ${id}`); process.exit(1); }
+  } else if (sub === 'deny') {
+    const id = args[2];
+    if (!id) { console.error('Usage: agentdom policy deny <id>'); process.exit(1); }
+    const result = pol.deny(id);
+    if (result) { logS(`Denied: ${id}`); }
+    else { logE(`Pending item not found: ${id}`); process.exit(1); }
+  } else if (sub === 'set') {
+    // agentdom policy set <effect>=<allow|prompt|deny>
+    // agentdom policy set external=allow
+    // agentdom policy set send=prompt
+    const assignment = args[2];
+    if (!assignment || !assignment.includes('=')) {
+      console.log(`Usage: agentdom policy set <effect>=<allow|prompt|deny>
+
+Effects: read, write_local, send, external, delete, payment
+
+Examples:
+  agentdom policy set external=allow   # allow all external API calls
+  agentdom policy set send=prompt      # ask before sending emails/messages
+  agentdom policy set default=allow    # allow everything by default`);
+      process.exit(0);
+    }
+    const [effect, decision] = assignment.split('=');
+    const valid = ['allow', 'prompt', 'deny'];
+    if (!valid.includes(decision)) { logE(`Decision must be: ${valid.join(' | ')}`); process.exit(1); }
+    const current = pol.getPolicy();
+    if (effect === 'default') {
+      current.default = decision;
+    } else {
+      if (!current.per_class) current.per_class = {};
+      current.per_class[effect] = decision;
+    }
+    pol.setPolicy(current);
+    logS(`Policy updated: ${effect} = ${decision}`);
+    console.log(JSON.stringify(pol.getPolicy().per_class || {}, null, 2));
+  } else if (sub === 'allow') {
+    // Shorthand: agentdom policy allow   (sets all effects to allow — use for headless runs)
+    const current = pol.getPolicy();
+    current.default = 'allow';
+    current.per_class = { read: 'allow', write_local: 'allow', send: 'allow', external: 'allow', delete: 'deny', payment: 'deny' };
+    pol.setPolicy(current);
+    logS('Policy set to allow (delete and payment still denied)');
+  } else if (sub === 'reset') {
+    pol.setPolicy({ default: 'prompt', per_class: { read: 'allow', write_local: 'allow', send: 'prompt', external: 'prompt', delete: 'deny', payment: 'deny' }, per_provider: {}, per_intent: {} });
+    logS('Policy reset to defaults');
   } else {
-    console.error('Usage: agentdom policy [show|pending]');
+    console.error(`Usage: agentdom policy [show|pending|approve <id>|deny <id>|set <effect>=<decision>|allow|reset]`);
   }
 
 // ── Memory commands ─────────────────────────────────────────────────────────

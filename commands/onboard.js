@@ -135,23 +135,39 @@ async function cdpAvailable() {
 }
 
 // ── Banner ────────────────────────────────────────────────────────────────
+// ASCII translation of the website's AgentDOM SVG logo:
+//   outer dashed ring → · · dotted border
+//   eye sclera        → ( ═══ )  with iris dot
+//   iris/pupil        → ● scanning left↔right
+//   pulse ring        → expanding ° glyph
+//   corner nodes      → ◦ at four corners
 function banner() {
-  // Clear screen for fresh feel
-  process.stdout.write('\x1bc'); // soft reset (clears scroll without flicker)
+  process.stdout.write('\x1bc');  // soft reset
   blank();
 
-  // Logo row — diamond + name (Claude‑Code style)
-  out(`  ${clr.orange('◆')}  ${clr.bold(clr.white('AgentDOM'))}  ${clr.dim('v3.5.4')}`);
+  const o  = s => `\x1b[38;2;249;115;22m${s}${R}`;   // orange #f97316
+  const od = s => `\x1b[38;2;154;65;10m${s}${R}`;    // dim orange
+  const w  = s => `\x1b[97m${s}${R}`;                 // white
+  const d  = s => `\x1b[2m${s}${R}`;                  // dim
+
+  //  Logo — 7-line eye mark (matches SVG: outer ring · eye · iris · nodes)
+  out(`  ${od('◦')}                      ${od('◦')}`);
+  out(`       ${od('·  ·  ·  ·  ·  ·  ·')}`);
+  out(`     ${od('·')}   ${o('╭──────────────╮')}   ${od('·')}`);
+  out(`    ${od('·')}    ${o('│')} ${w('AgentDOM')} ${o('●')} ${o('│')}    ${od('·')}`);
+  out(`     ${od('·')}   ${o('╰──────────────╯')}   ${od('·')}`);
+  out(`       ${od('·  ·  ·  ·  ·  ·  ·')}`);
+  out(`  ${od('◦')}                      ${od('◦')}`);
+
   blank();
 
-  // Info bar (like Claude's model / cwd line)
-  const cwd     = process.cwd().replace(os.homedir(), '~');
-  const cfg     = readConfig();
-  const model   = cfg.llm?.model ?? clr.dim('no model set');
-  const wallet  = readWallet();
-  const nprov   = Object.keys(wallet.providers || {}).length;
+  // Info bar — model · integrations · cwd
+  const cwd    = process.cwd().replace(os.homedir(), '~').slice(0, 36);
+  const cfg    = readConfig();
+  const model  = cfg.llm?.model || 'no model';
+  const nprov  = Object.keys(readWallet().providers || {}).length;
 
-  out(`  ${clr.dim('model')}  ${clr.cyan(model)}    ${clr.dim('integrations')}  ${clr.cyan(String(nprov))}    ${clr.dim('cwd')}  ${clr.dim(cwd.slice(0, 32))}`);
+  out(`  ${d('model')}  ${clr.cyan(model)}    ${d('integrations')}  ${clr.cyan(String(nprov))}    ${d('cwd')}  ${d(cwd)}`);
   rule();
 }
 

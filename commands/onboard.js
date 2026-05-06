@@ -52,12 +52,13 @@ function box(lines, style = 'single') {
 }
 
 // ── readline ──────────────────────────────────────────────────────────────
-let _rl;
-function getRl() {
-  if (!_rl) _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return _rl;
-}
-const ask = q => new Promise(res => getRl().question(q, a => res(a.trim())));
+const ask = q => new Promise(res => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  rl.question(q, a => {
+    rl.close();
+    res(a.trim());
+  });
+});
 
 async function askSecret(label) {
   outr(`  ${clr.cyan('❯')} ${label}: `);
@@ -472,8 +473,6 @@ async function main(args = []) {
   await testRun();
   await exportWallet();
   summary();
-
-  if (_rl) _rl.close();
 }
 
 module.exports = { main, doctor };

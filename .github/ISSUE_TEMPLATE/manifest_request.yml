@@ -1,0 +1,55 @@
+name: Manifest Request
+description: Request a polyfill manifest for a new provider
+labels: ["manifest", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Request a new provider manifest (or submit one yourself — see CONTRIBUTING.md).
+
+  - type: input
+    id: host
+    attributes:
+      label: Provider host
+      placeholder: "api.example.com"
+    validations:
+      required: true
+
+  - type: input
+    id: openapi
+    attributes:
+      label: OpenAPI spec URL (if available)
+      placeholder: "https://api.example.com/openapi.json"
+
+  - type: textarea
+    id: intents
+    attributes:
+      label: Key intents needed
+      placeholder: |
+        - contacts.create
+        - contacts.list
+        - deals.create
+    validations:
+      required: true
+
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Auth method
+      options:
+        - API Key
+        - OAuth2 / PKCE
+        - Device Flow
+        - Other / Unknown
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: agent_tokens
+    attributes:
+      label: Does this provider have a token issuance API?
+      description: If yes, they could implement the Agent Token Protocol.
+      options:
+        - label: "Yes — they have a /api-keys or similar programmatic endpoint"
+        - label: "Not sure"
+        - label: "No"

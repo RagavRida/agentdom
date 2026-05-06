@@ -1,0 +1,70 @@
+name: Bug Report
+description: Report a broken dispatch, auth failure, or unexpected behavior
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out as much as you can.
+
+  - type: input
+    id: version
+    attributes:
+      label: AgentDOM version
+      placeholder: "3.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider (if applicable)
+      placeholder: "linear.app, resend.com, openrouter.ai, etc."
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - dispatch_intent
+        - Auth / Setup / Wallet
+        - Agent Token Protocol
+        - MCP server
+        - CLI command
+        - Publisher SDK
+        - Manifest / polyfill
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      placeholder: Describe what you expected vs what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. agentdom setup resend.com --key=re_xxx
+        2. agentdom goal "Send an email"
+        3. Error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      render: shell
+      placeholder: Paste the full error output here.
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      placeholder: "22.x"

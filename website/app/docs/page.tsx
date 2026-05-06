@@ -9,16 +9,15 @@ import CodeBlock from '@/components/CodeBlock';
 
 // ── Code snippets ─────────────────────────────────────────────────────────────
 
-const installCode = `<span class="syn-comment"># Install globally</span>
-npm install -g agentdom
+const installCode = `<span class="syn-comment"># No install needed — npx works immediately</span>
+npx agentdom@latest setup linear.app   <span class="syn-comment"># OAuth PKCE</span>
+npx agentdom@latest setup resend.com   <span class="syn-comment"># API key prompt</span>
+npx agentdom@latest run <span class="syn-str">"Create a Linear ticket for the login crash"</span>
 
-<span class="syn-comment"># Authenticate once (opens browser for OAuth)</span>
-agentdom auth linear.app
-agentdom auth resend.com      <span class="syn-comment"># prompts for API key</span>
-agentdom auth github.com      <span class="syn-comment"># device flow</span>
-
-<span class="syn-comment"># Run a goal</span>
-agentdom goal <span class="syn-str">"Create a Linear ticket for the login crash"</span>`;
+<span class="syn-comment"># For permanent install — fix permissions first (macOS)</span>
+mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+npm install -g agentdom`;
 
 const dispatchCode = `<span class="syn-comment">// Dispatch a single intent directly</span>
 <span class="syn-fn">dispatch_intent</span>(<span class="syn-str">"issues.create"</span>, {

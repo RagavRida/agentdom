@@ -43,8 +43,27 @@ One function. Any software. AgentDOM discovers the fastest available transport �
 
 ## Install
 
+**No install needed — use `npx` directly:**
+
 ```bash
+npx agentdom@latest setup linear.app
+npx agentdom@latest run "Create a Linear ticket for the login crash"
+```
+
+**For permanent install (pick one):**
+
+```bash
+# Option 1 — npm (if you get permission errors, use Option 2)
+sudo npm install -g agentdom
+
+# Option 2 — Fix npm permissions first (recommended for macOS)
+mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 npm install -g agentdom
+
+# Option 3 — via nvm (best long-term, never needs sudo)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.zshrc && nvm install 22 && npm install -g agentdom
 ```
 
 Runtime: Node 22+ (LTS) or Node 24.
@@ -52,19 +71,18 @@ Runtime: Node 22+ (LTS) or Node 24.
 ## Quick start
 
 ```bash
-# One-time setup — authenticate with any provider
-agentdom setup linear.app         # OAuth PKCE — browser opens once
-agentdom setup resend.com         # API key — paste once
-agentdom setup github.com         # Device flow — enter code at URL
+# No install needed — npx works immediately
+npx agentdom@latest setup linear.app    # OAuth PKCE — browser opens once
+npx agentdom@latest setup resend.com    # API key — paste once
+npx agentdom@latest setup github.com    # Device flow — enter code at URL
 
-# Run a goal
-agentdom goal "Create a Linear ticket for the login crash and assign to @alice"
+# Run a goal autonomously
+npx agentdom@latest run "Create a Linear ticket for the login crash and assign to @alice"
 
-# Or dispatch a specific intent
-agentdom agent-token resend.com --scopes=emails:send
+# Or if installed globally:
+agentdom setup resend.com
+agentdom run "Send a weekly digest email to team@company.com"
 ```
-
-After setup, agents operate headlessly forever — no more human steps.
 
 ## Give credentials to an agent (no human at runtime)
 

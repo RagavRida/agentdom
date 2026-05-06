@@ -338,7 +338,7 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     setProvider(host, { method: 'none' });
     return { provider: host, method, no_auth_required: true };
   }
-  if (method === 'oauth2') {
+  if (method === 'oauth2' || method === 'oauth2_pkce' || method === 'oauth2_cc') {
     clientId = clientId || m.auth.client_id || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
     clientSecret = clientSecret || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_SECRET`];
     const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents });
@@ -347,6 +347,12 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
   }
   if (method === 'api_key') {
     const entry = await apiKeyFlow({ host, manifest: m, key });
+    await keychain.setToken(host, entry);
+    return { provider: host, ...sanitize(entry) };
+  }
+  if (method === 'device_flow' || method === 'oauth2_device') {
+    // Route through oauthFlow which handles device_url internally
+    const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, forceDevice: true });
     await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }

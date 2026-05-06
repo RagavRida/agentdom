@@ -135,39 +135,41 @@ async function cdpAvailable() {
 }
 
 // ── Banner ────────────────────────────────────────────────────────────────
-// ASCII translation of the website's AgentDOM SVG logo:
-//   outer dashed ring → · · dotted border
-//   eye sclera        → ( ═══ )  with iris dot
-//   iris/pupil        → ● scanning left↔right
-//   pulse ring        → expanding ° glyph
-//   corner nodes      → ◦ at four corners
 function banner() {
-  process.stdout.write('\x1bc');  // soft reset
+  process.stdout.write('\x1bc');
   blank();
 
-  const o  = s => `\x1b[38;2;249;115;22m${s}${R}`;   // orange #f97316
-  const od = s => `\x1b[38;2;154;65;10m${s}${R}`;    // dim orange
-  const w  = s => `\x1b[97m${s}${R}`;                 // white
-  const d  = s => `\x1b[2m${s}${R}`;                  // dim
+  const OB  = s => `\x1b[1m\x1b[38;2;249;115;22m${s}${R}`;  // bright orange bold
+  const OM  = s => `\x1b[38;2;180;80;20m${s}${R}`;           // mid orange
+  const OD  = s => `\x1b[38;2;90;40;8m${s}${R}`;             // dim orange (outer ring)
+  const WB  = s => `\x1b[1m\x1b[97m${s}${R}`;                // bold white
+  const DIM = s => `\x1b[2m${s}${R}`;
 
-  //  Logo — 7-line eye mark (matches SVG: outer ring · eye · iris · nodes)
-  out(`  ${od('◦')}                      ${od('◦')}`);
-  out(`       ${od('·  ·  ·  ·  ·  ·  ·')}`);
-  out(`     ${od('·')}   ${o('╭──────────────╮')}   ${od('·')}`);
-  out(`    ${od('·')}    ${o('│')} ${w('AgentDOM')} ${o('●')} ${o('│')}    ${od('·')}`);
-  out(`     ${od('·')}   ${o('╰──────────────╯')}   ${od('·')}`);
-  out(`       ${od('·  ·  ·  ·  ·  ·  ·')}`);
-  out(`  ${od('◦')}                      ${od('◦')}`);
+  // ── Eye logo — 9 lines, full width ────────────────────────────────────
+  out(`  ${OM('◆')}${OD(' ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  · ')}${OM('◆')}`);
+  out(`  ${OD('·')}                                             ${OD('·')}`);
+  out(`  ${OD('·')}     ${OB('╔═══════════════════════════════╗')}     ${OD('·')}`);
+  out(`  ${OD('·')}     ${OB('║')}                               ${OB('║')}     ${OD('·')}`);
+  out(`  ${OD('·')}     ${OB('║')}   ${OM('(')}  ${OB('══════')}  ${WB('●')}  ${OB('══════')}  ${OM(')')}   ${OB('║')}     ${OD('·')}`);
+  out(`  ${OD('·')}     ${OB('║')}                               ${OB('║')}     ${OD('·')}`);
+  out(`  ${OD('·')}     ${OB('╚═══════════════════════════════╝')}     ${OD('·')}`);
+  out(`  ${OD('·')}                                             ${OD('·')}`);
+  out(`  ${OM('◆')}${OD(' ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  · ')}${OM('◆')}`);
 
   blank();
 
-  // Info bar — model · integrations · cwd
-  const cwd    = process.cwd().replace(os.homedir(), '~').slice(0, 36);
-  const cfg    = readConfig();
-  const model  = cfg.llm?.model || 'no model';
-  const nprov  = Object.keys(readWallet().providers || {}).length;
+  // Wordmark + tagline
+  out(`  ${WB('AgentDOM')}   ${DIM('Universal Runtime for AI Agents')}   ${DIM('v3.5.4')}`);
+  blank();
 
-  out(`  ${d('model')}  ${clr.cyan(model)}    ${d('integrations')}  ${clr.cyan(String(nprov))}    ${d('cwd')}  ${d(cwd)}`);
+  // Info bar
+  const homeDir  = os.homedir();
+  const cwdClean = process.cwd().replace(homeDir, '~').slice(0, 36);
+  const cfg      = readConfig();
+  const model    = cfg.llm?.model || 'no model';
+  const nprov    = Object.keys(readWallet().providers || {}).length;
+
+  out(`  ${DIM('model')}  ${clr.cyan(model)}    ${DIM('integrations')}  ${clr.cyan(String(nprov))}    ${DIM('cwd')}  ${DIM(cwdClean)}`);
   rule();
 }
 

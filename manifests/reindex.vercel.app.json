@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "host": "reindex.vercel.app",
+  "name": "Reindex",
+  "description": "Global AI research infrastructure — GPU compute (A100/H100), ML datasets, AI paper writer, literature search across 200M+ papers",
+  "polyfill": true,
+  "polyfill_note": "Generated from public page. Reindex has not published .well-known/agentdom.json yet.",
+  "auth": {
+    "method": "oauth2_pkce",
+    "auth_url":   "https://reindex.vercel.app/oauth/authorize",
+    "token_url":  "https://reindex.vercel.app/oauth/token",
+    "scopes":     ["compute:read", "compute:write", "papers:read", "datasets:read"],
+    "pkce":       true,
+    "redirect_uri": "http://localhost:54321/callback"
+  },
+  "base_url": "https://reindex.vercel.app",
+  "capabilities": [
+    {
+      "intent": "compute.job.submit",
+      "description": "Submit a GPU compute job (training, fine-tuning, inference)",
+      "method": "POST",
+      "endpoint": "https://reindex.vercel.app/api/jobs",
+      "params": {
+        "image":     { "type": "string", "desc": "Docker image or framework tag (pytorch, tensorflow, jax)" },
+        "gpu_type":  { "type": "string", "enum": ["a100", "h100"], "desc": "GPU instance type" },
+        "gpu_count": { "type": "number", "desc": "Number of GPUs (1–8)" },
+        "command":   { "type": "string", "desc": "Shell command to run" },
+        "dataset":   { "type": "string", "desc": "Dataset ID to mount (optional)" }
+      },
+      "side_effects": ["external", "payment"]
+    },
+    {
+      "intent": "compute.job.status",
+      "description": "Get status of a submitted compute job",
+      "method": "GET",
+      "endpoint": "https://reindex.vercel.app/api/jobs/{job_id}",
+      "params": {
+        "job_id": { "type": "string", "desc": "Job ID returned from compute.job.submit" }
+      },
+      "side_effects": ["read"]
+    },
+    {
+      "intent": "compute.job.list",
+      "description": "List all compute jobs for the authenticated researcher",
+      "method": "GET",
+      "endpoint": "https://reindex.vercel.app/api/jobs",
+      "params": {
+        "status": { "type": "string", "enum": ["running", "completed", "failed", "queued"], "desc": "Filter by status" },
+        "limit":  { "type": "number", "desc": "Max results (default 20)" }
+      },
+      "side_effects": ["read"]
+    },
+    {
+      "intent": "paper.write",
+      "description": "Draft a research paper section using the AI Paper Writer",
+      "method": "POST",
+      "endpoint": "https://reindex.vercel.app/api/paper/write",
+      "params": {
+        "title":    { "type": "string", "desc": "Paper title" },
+        "section":  { "type": "string", "enum": ["abstract", "introduction", "methodology", "results", "conclusion"], "desc": "Section to generate" },
+        "context":  { "type": "string", "desc": "Research context / key points" },
+        "template": { "type": "string", "enum": ["ieee", "acm", "article"], "desc": "LaTeX template (default: article)" }
+      },
+      "side_effects": ["read"]
+    },
+    {
+      "intent": "literature.search",
+      "description": "Search 200M+ academic papers with AI-powered summarization",
+      "method": "GET",
+      "endpoint": "https://reindex.vercel.app/api/search?q={query}&limit={limit}",
+      "params": {
+        "query": { "type": "string", "desc": "Search query (natural language or keyword)" },
+        "limit": { "type": "number", "desc": "Max results (default 10)" }
+      },
+      "side_effects": ["read"]
+    },
+    {
+      "intent": "dataset.list",
+      "description": "Browse the curated ML dataset repository",
+      "method": "GET",
+      "endpoint": "https://reindex.vercel.app/api/datasets",
+      "params": {
+        "domain": { "type": "string", "desc": "Scientific domain filter (nlp, vision, biology, chemistry)" },
+        "limit":  { "type": "number", "desc": "Max results (default 20)" }
+      },
+      "side_effects": ["read"]
+    },
+    {
+      "intent": "workspace.create",
+      "description": "Create a shared research workspace for collaboration",
+      "method": "POST",
+      "endpoint": "https://reindex.vercel.app/api/workspaces",
+      "params": {
+        "name":    { "type": "string", "desc": "Workspace name" },
+        "members": { "type": "array",  "desc": "List of member email addresses" }
+      },
+      "side_effects": ["external"]
+    }
+  ]
+}

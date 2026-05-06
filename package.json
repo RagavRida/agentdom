@@ -1,6 +1,6 @@
 {
   "name": "agentdom",
-  "version": "3.2.4",
+  "version": "3.2.5",
   "description": "Universal AI agent protocol. Agents interact with any software — web, desktop, SaaS API, CLI — through a single semantic interface. No screenshots. No scraping.",
   "main": "agentdom.js",
   "bin": {

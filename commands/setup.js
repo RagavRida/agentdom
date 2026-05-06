@@ -38,18 +38,130 @@ function prompt(question) {
   });
 }
 
-// Determine what type of auth a provider needs
-async function detectAuthMethod(host) {
-  const d = await discover(host).catch(() => null);
-  if (d?.manifest?.auth?.method) return d.manifest.auth;
+// ── Deep auth auto-detection ───────────────────────────────────────────────
+// Priority:
+//   1. .well-known/agentdom.json  → definitive (manifest says exactly what to do)
+//   2. OAUTH_REGISTRY             → pre-registered known providers
+//   3. .well-known/oauth-authorization-server → RFC 8414 OAuth metadata
+//   4. Common OAuth endpoint probe → /oauth/authorize, /auth/authorize, etc.
+//   5. Common API key patterns     → checks docs page for "API key", "Bearer", "x-api-key"
+//   6. Fallback                    → prompt user to choose
 
-  // Check oauth-pkce registry
+async function detectAuthMethod(host) {
+  const base = `https://${host}`;
+
+  // 1. Check .well-known/agentdom.json (most authoritative)
   try {
-    const { OAUTH_REGISTRY } = require('../lib/oauth-pkce');
-    if (OAUTH_REGISTRY[host]) return { method: 'oauth2_pkce', ...OAUTH_REGISTRY[host] };
+    const d = await discover(host).catch(() => null);
+    if (d?.manifest?.auth?.method) {
+      return { ...d.manifest.auth, _source: 'agentdom.json' };
+    }
   } catch {}
 
-  return { method: 'unknown' };
+  // 2. Pre-registered registry (known top-50 providers)
+  try {
+    const { OAUTH_REGISTRY } = require('../lib/oauth-pkce');
+    if (OAUTH_REGISTRY[host]) {
+      const cfg = OAUTH_REGISTRY[host];
+      return {
+        method: cfg.api_key_alt ? 'api_key'
+               : cfg.device_url ? 'device_flow'
+               : 'oauth2_pkce',
+        ...cfg,
+        _source: 'registry',
+      };
+    }
+  } catch {}
+
+  // 3. RFC 8414 — OAuth Authorization Server Metadata
+  try {
+    const res = await fetch(`${base}/.well-known/oauth-authorization-server`, {
+      signal: AbortSignal.timeout(4000),
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const meta = await res.json();
+      if (meta.authorization_endpoint) {
+        return {
+          method:    'oauth2_pkce',
+          auth_url:  meta.authorization_endpoint,
+          token_url: meta.token_endpoint,
+          scopes:    meta.scopes_supported || [],
+          pkce:      !!meta.code_challenge_methods_supported?.includes('S256'),
+          _source:   'rfc8414',
+        };
+      }
+    }
+  } catch {}
+
+  // 4. OpenID Connect discovery
+  try {
+    const res = await fetch(`${base}/.well-known/openid-configuration`, {
+      signal: AbortSignal.timeout(4000),
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const meta = await res.json();
+      if (meta.authorization_endpoint) {
+        return {
+          method:    'oauth2_pkce',
+          auth_url:  meta.authorization_endpoint,
+          token_url: meta.token_endpoint,
+          scopes:    meta.scopes_supported || ['openid', 'profile', 'email'],
+          pkce:      true,
+          _source:   'oidc',
+        };
+      }
+    }
+  } catch {}
+
+  // 5. Probe common OAuth endpoints (heuristic — HEAD request, check status)
+  const oauthPaths = [
+    '/oauth/authorize', '/oauth2/authorize', '/auth/oauth/authorize',
+    '/v1/oauth/authorize', '/api/oauth/authorize', '/connect/authorize',
+  ];
+  for (const path of oauthPaths) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(3000),
+        redirect: 'manual',
+      });
+      // 302/400/401 all indicate the endpoint exists
+      if (res.status < 500) {
+        return {
+          method:    'oauth2_pkce',
+          auth_url:  `${base}${path}`,
+          token_url: `${base}${path.replace('authorize', 'token')}`,
+          scopes:    [],
+          pkce:      true,
+          _source:   'probe',
+        };
+      }
+    } catch {}
+  }
+
+  // 6. Check homepage/docs for API key patterns
+  try {
+    const res = await fetch(`${base}`, {
+      signal: AbortSignal.timeout(4000),
+      headers: { Accept: 'text/html' },
+    });
+    const html = await res.text();
+    const lower = html.toLowerCase();
+    // Strong API key signals
+    if (lower.includes('x-api-key') || lower.includes('api_key') ||
+        lower.includes('api-key') || lower.includes('secret key')) {
+      return { method: 'api_key', _source: 'html_probe', obtain_url: `${base}/settings/api-keys` };
+    }
+    // Weak OAuth signals
+    if (lower.includes('oauth') || lower.includes('authorize') || lower.includes('client_id')) {
+      return { method: 'oauth2_pkce', auth_url: `${base}/oauth/authorize`, token_url: `${base}/oauth/token`, scopes: [], pkce: true, _source: 'html_probe' };
+    }
+  } catch {}
+
+  // 7. Unknown — we'll ask the user
+  return { method: 'unknown', _source: 'fallback' };
 }
 
 async function runSetup(host, opts = {}) {
@@ -63,16 +175,41 @@ async function runSetup(host, opts = {}) {
     return { skipped: true, provider: host, source: existing.source };
   }
 
+  // Auto-detect auth method
+  process.stdout.write(`  ${C.dim('Detecting auth method...')}`);
   const authInfo = await detectAuthMethod(host);
-  const method   = opts.key ? 'api_key' : authInfo.method;
+  const sourceLabel = authInfo._source ? C.dim(` [detected via ${authInfo._source}]`) : '';
+  let method = opts.key ? 'api_key' : authInfo.method;
+
+  // Show what we found
+  const methodLabel = {
+    oauth2_pkce: `${C.cyan('OAuth 2.0 + PKCE')} (browser opens once)`,
+    oauth2:      `${C.cyan('OAuth 2.0')} (browser opens once)`,
+    device_flow: `${C.cyan('Device Flow')} (enter code at URL)`,
+    api_key:     `${C.cyan('API Key')} (paste once)`,
+    unknown:     `${C.yellow('Unknown')} (will ask)`,
+  }[method] || method;
+  console.log(`\r  ${C.green('→')} Auth method: ${methodLabel}${sourceLabel}\n`);
+
+  // ── Unknown: ask user ────────────────────────────────────────────────────
+  if (method === 'unknown') {
+    const choice = await prompt(
+      `  ${C.bold('What auth does')} ${host} ${C.bold('use?')}\n` +
+      `    1) OAuth (browser login)\n` +
+      `    2) API key (paste a token)\n` +
+      `    3) Device code (enter code at URL)\n` +
+      `  Enter 1, 2, or 3: `
+    );
+    method = choice === '2' ? 'api_key' : choice === '3' ? 'device_flow' : 'oauth2_pkce';
+    console.log();
+  }
 
   // ── API key ────────────────────────────────────────────────────────────────
-  if (method === 'api_key' || method === 'unknown') {
+  if (method === 'api_key') {
     let key = opts.key;
     if (!key) {
       const obtainUrl = authInfo.obtain_url || `https://${host}/settings/api-keys`;
-      console.log(`${C.yellow('→')} ${host} uses API key authentication.`);
-      console.log(`${C.dim(`  Get your key at: ${obtainUrl}`)}\n`);
+      console.log(`  ${C.dim(`Get your API key at: ${obtainUrl}`)}\n`);
       key = await prompt(`  Paste your ${host} API key: `);
       if (!key) { console.error('No key provided.'); process.exit(1); }
     }
@@ -84,9 +221,8 @@ async function runSetup(host, opts = {}) {
 
   // ── OAuth PKCE ─────────────────────────────────────────────────────────────
   if (method === 'oauth2_pkce' || method === 'oauth2') {
-    console.log(`${C.yellow('→')} ${host} uses OAuth. Your browser will open for authorization.`);
-    console.log(`${C.dim('  This is the only time you\'ll need to do this.')}\n`);
-    const entry = await auth({ provider: host, force: opts.force });
+    console.log(`  ${C.dim('Your browser will open — approve access, then return here.')}\n`);
+    const entry = await auth({ provider: host, force: opts.force, config: authInfo });
     console.log(`\n${C.green('✓')} Authenticated ${C.bold(host)} ${C.dim('(oauth2 — refresh token stored)')}`);
     printNextSteps(host);
     return entry;
@@ -94,8 +230,7 @@ async function runSetup(host, opts = {}) {
 
   // ── Device flow ────────────────────────────────────────────────────────────
   if (method === 'device_flow') {
-    console.log(`${C.yellow('→')} ${host} uses device flow.`);
-    console.log(`${C.dim('  You\'ll be given a code to enter at a URL — no browser redirect needed.')}\n`);
+    console.log(`  ${C.dim("You'll get a short code to enter at a URL — no browser redirect needed.")}\n`);
     const entry = await auth({ provider: host, force: opts.force });
     console.log(`\n${C.green('✓')} Authenticated ${C.bold(host)} ${C.dim('(device_flow)')}`);
     printNextSteps(host);

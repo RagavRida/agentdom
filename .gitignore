@@ -63,6 +63,25 @@ gtm-strategy-*.md
 *-report-*.md
 tools/demo-*.js
 
+# ── Personal / session files (never commit these) ─────────────────────────────
+yc-coding-session.md
+*-coding-session.md
+*-session.md
+
+# ── macOS finder aliases / fileloc ───────────────────────────────────────────
+*.fileloc
+*.alias
+
+# ── Infrastructure config with real data ──────────────────────────────────────
+website/dns-change.json
+dns-change.json
+**/dns-change*.json
+aws/cdk-outputs.json
+
+# ── AI agent internal instruction files (keep root AGENTS.md / CLAUDE.md) ────
+website/AGENTS.md
+website/CLAUDE.md
+
 # ── Misc ──────────────────────────────────────────────────────────────────────
 .turbo/
 .vercel/

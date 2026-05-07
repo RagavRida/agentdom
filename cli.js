@@ -1143,7 +1143,78 @@ Examples:
 
 } else if (args.includes('--desktop') || args.includes('-d')) {
   desktopMode().catch(e => { console.error('Fatal:', e); process.exit(1); });
-} else {
-  main().catch(e => { console.error('Fatal:', e); process.exit(1); });
-}
 
+// ── --version ───────────────────────────────────────────────────────────────
+} else if (args[0] === '--version' || args[0] === '-v' || args[0] === 'version') {
+  const pkg = require('./package.json');
+  console.log(pkg.version);
+  process.exit(0);
+
+// ── --help / no args ────────────────────────────────────────────────────────
+} else if (!args[0] || args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
+  const pkg = require('./package.json');
+  const o = '\x1b[38;2;251;146;60m';  // orange
+  const b = '\x1b[1m';
+  const d = '\x1b[2m';
+  const r = '\x1b[0m';
+  const g = '\x1b[38;2;136;136;160m'; // gray
+
+  console.log(`
+${o}${b}  ◆ AgentDOM v${pkg.version}${r}
+${d}  Universal AI agent runtime — any software, any transport.${r}
+${g}  https://getagentdom.com${r}
+
+${b}Usage:${r}
+  npx agentdom <command> [options]
+  agentdom <command> [options]
+
+${b}Commands:${r}
+  ${o}onboard${r}                 Interactive setup wizard (LLM key + integrations)
+  ${o}setup <provider>${r}        One-time credential setup for a provider
+                           e.g. agentdom setup github.com
+  ${o}run "<goal>"${r}            Execute a natural language goal autonomously
+                           e.g. agentdom run "Create a Linear ticket for the iOS crash"
+  ${o}doctor${r}                  Health check — LLM, Chrome, integrations
+  ${o}wallet list${r}             Show all stored credentials
+  ${o}wallet export${r}           Export credentials (--base64 for CI/Docker)
+  ${o}wallet import <file>${r}    Import credentials from file or base64
+  ${o}policy show${r}             Show current policy (allow/prompt/deny per effect)
+  ${o}policy set <k>=<v>${r}      Set a policy rule (e.g. external=allow)
+  ${o}approve <id>${r}            Approve a pending agent action
+  ${o}deny <id>${r}               Deny a pending agent action
+  ${o}memory stats${r}            Show episodic memory statistics
+  ${o}auth <provider>${r}         Run OAuth flow for a provider
+  ${o}launch${r}                  Launch browser REPL (interactive browser control)
+  ${o}agent-token <provider>${r}  Issue/rotate/revoke an agent token
+
+${b}Examples:${r}
+  ${g}# First time — set up your AI key and integrations${r}
+  npx agentdom@latest onboard
+
+  ${g}# Set up a specific integration${r}
+  npx agentdom@latest setup linear.app
+  npx agentdom@latest setup github.com
+
+  ${g}# Run a goal autonomously${r}
+  npx agentdom@latest run "Create a Linear ticket for the iOS crash"
+
+  ${g}# Add to Claude Desktop (MCP)${r}
+  claude mcp add agentdom -- node \$(npm root -g)/agentdom/desktop-mcp-server.js
+
+  ${g}# Export credentials for CI/Docker${r}
+  agentdom wallet export --base64 --providers=linear.app,github.com
+
+${b}Publisher SDK:${r}
+  npx agentdom-publisher init --openapi=./openapi.json --host=api.myapp.com
+  npx agentdom-publisher mcpuse --host=github.com --out=./github-mcp
+
+${b}Docs:${r} ${g}https://getagentdom.com/docs${r}
+`);
+  process.exit(0);
+
+// ── Unknown command ──────────────────────────────────────────────────────────
+} else {
+  console.error(`\x1b[31m✗ Unknown command: ${args[0]}\x1b[0m`);
+  console.error(`  Run \x1b[2mnpx agentdom --help\x1b[0m for available commands.`);
+  process.exit(1);
+}

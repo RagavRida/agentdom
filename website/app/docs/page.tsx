@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Shield, Key, Terminal, Globe, Zap, BookOpen, Layers, ArrowRight, Brain, Lock, UserCheck, Package, RefreshCw } from 'lucide-react';
 import AnimatedGrid from '@/components/AnimatedGrid';
 import Navbar from '@/components/Navbar';
@@ -181,6 +181,35 @@ const providers = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState('quickstart');
+
+  // Auto-highlight sidebar as user scrolls
+  useEffect(() => {
+    const sectionIds = sections.map(s => s.id);
+    const observers: IntersectionObserver[] = [];
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the topmost visible section
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible.length > 0) {
+          setActiveSection(visible[0].target.id);
+        }
+      },
+      {
+        rootMargin: '-10% 0px -70% 0px', // trigger when section enters top 30% of viewport
+        threshold: 0,
+      }
+    );
+
+    sectionIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>

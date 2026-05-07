@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import AgentLogo from './AgentLogo';
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -20,7 +20,7 @@ export default function Navbar() {
     <div className="nav-wrapper">
       <nav className={`nav ${scrolled ? 'nav-scrolled' : ''}`}>
         <Link href="/" className="nav-logo">
-          <Image src="/logo.png" alt="AgentDOM" width={24} height={24} /> AgentDOM
+          <AgentLogo size={26} /> AgentDOM
         </Link>
         <div className="nav-links">
           <Link href="/#how">How It Works</Link>

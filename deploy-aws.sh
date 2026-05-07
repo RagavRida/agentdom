@@ -1,187 +1,62 @@
 #!/bin/bash
-# ═══════════════════════════════════════════════════════════
-# AgentDOM — AWS Deployment Script
-# Deploys static docs to S3/CloudFront + API server to ECS
-# ═══════════════════════════════════════════════════════════
-
+# AgentDOM AWS Deploy — one script, full stack
+# Usage: ./deploy.sh [your-openrouter-key]
 set -e
 
-# Config — change these
-PROJECT="agentdom"
-REGION="us-east-1"
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-DOMAIN="agentdom.dev"  # Your domain (optional)
-
-# Colors
-G='\033[0;32m'; B='\033[0;34m'; Y='\033[1;33m'; R='\033[0;31m'; NC='\033[0m'
-log() { echo -e "${G}[✓]${NC} $1"; }
-info() { echo -e "${B}[→]${NC} $1"; }
-warn() { echo -e "${Y}[!]${NC} $1"; }
+OPENROUTER_KEY=${1:-$OPENROUTER_API_KEY}
+REGION=${AWS_REGION:-us-east-1}
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 
 echo ""
-echo "  ⚡ AgentDOM AWS Deployment"
-echo "  ─────────────────────────"
+echo "  ◆ AgentDOM AWS Deploy"
+echo "  ─────────────────────────────────"
+echo "  Account : $ACCOUNT"
+echo "  Region  : $REGION"
+echo "  API Key : ${OPENROUTER_KEY:0:12}..."
 echo ""
 
-# ─── STEP 1: Static Site → S3 ───
-BUCKET="${PROJECT}-docs"
-info "Creating S3 bucket: ${BUCKET}"
-
-aws s3 mb "s3://${BUCKET}" --region ${REGION} 2>/dev/null || true
-
-aws s3 website "s3://${BUCKET}" \
-  --index-document index.html \
-  --error-document index.html
-
-# Upload static files
-info "Uploading docs site..."
-aws s3 sync ./docs/ "s3://${BUCKET}/docs/" \
-  --delete \
-  --cache-control "max-age=3600" \
-  --content-type "text/html" \
-  --exclude "*" --include "*.html"
-
-aws s3 sync ./docs/ "s3://${BUCKET}/docs/" \
-  --delete \
-  --cache-control "max-age=86400" \
-  --exclude "*.html"
-
-# Upload main demo page + agentdom.js (for CDN)
-aws s3 cp ./index.html "s3://${BUCKET}/index.html" \
-  --cache-control "max-age=3600" \
-  --content-type "text/html"
-
-aws s3 cp ./agentdom.js "s3://${BUCKET}/v3/agentdom.min.js" \
-  --cache-control "max-age=86400" \
-  --content-type "application/javascript"
-
-# Set bucket policy for public read
-aws s3api put-bucket-policy --bucket ${BUCKET} --policy "{
-  \"Version\": \"2012-10-17\",
-  \"Statement\": [{
-    \"Sid\": \"PublicRead\",
-    \"Effect\": \"Allow\",
-    \"Principal\": \"*\",
-    \"Action\": \"s3:GetObject\",
-    \"Resource\": \"arn:aws:s3:::${BUCKET}/*\"
-  }]
-}"
-
-log "Static site uploaded to S3"
-
-# ─── STEP 2: CloudFront CDN ───
-info "Creating CloudFront distribution..."
-
-CF_CONFIG=$(cat <<EOF
-{
-  "CallerReference": "${PROJECT}-$(date +%s)",
-  "Comment": "AgentDOM Docs CDN",
-  "DefaultCacheBehavior": {
-    "TargetOriginId": "S3-${BUCKET}",
-    "ViewerProtocolPolicy": "redirect-to-https",
-    "AllowedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]},
-    "CachedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]},
-    "ForwardedValues": {"QueryString": false, "Cookies": {"Forward": "none"}},
-    "MinTTL": 0, "DefaultTTL": 86400, "MaxTTL": 31536000,
-    "Compress": true
-  },
-  "Origins": {
-    "Quantity": 1,
-    "Items": [{
-      "Id": "S3-${BUCKET}",
-      "DomainName": "${BUCKET}.s3.amazonaws.com",
-      "S3OriginConfig": {"OriginAccessIdentity": ""}
-    }]
-  },
-  "Enabled": true,
-  "DefaultRootObject": "index.html",
-  "PriceClass": "PriceClass_100"
-}
-EOF
-)
-
-DIST_ID=$(aws cloudfront create-distribution \
-  --distribution-config "${CF_CONFIG}" \
-  --query 'Distribution.Id' --output text 2>/dev/null || echo "exists")
-
-if [ "$DIST_ID" != "exists" ]; then
-  log "CloudFront distribution created: ${DIST_ID}"
-else
-  warn "CloudFront distribution may already exist"
+# 1. Install CDK if missing
+if ! command -v cdk &> /dev/null; then
+  echo "  → Installing AWS CDK..."
+  npm install -g aws-cdk
 fi
 
-# ─── STEP 3: Docker → ECR ───
-ECR_REPO="${PROJECT}-api"
-info "Creating ECR repository: ${ECR_REPO}"
+# 2. Install CDK dependencies
+if [ ! -d "node_modules/aws-cdk-lib" ]; then
+  echo "  → Installing CDK dependencies..."
+  npm install --save-dev \
+    aws-cdk \
+    aws-cdk-lib \
+    constructs
+fi
 
-aws ecr create-repository --repository-name ${ECR_REPO} --region ${REGION} 2>/dev/null || true
+# 3. Bootstrap CDK (only needed once per account/region)
+echo "  → Bootstrapping CDK..."
+npx cdk bootstrap aws://$ACCOUNT/$REGION
 
-# Login to ECR
-aws ecr get-login-password --region ${REGION} | \
-  docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
+# 4. Deploy full stack
+echo "  → Deploying AgentDOM stack..."
+npx cdk deploy AgentDOMStack \
+  --context apiKey="$OPENROUTER_KEY" \
+  --require-approval never \
+  --outputs-file aws/cdk-outputs.json
 
-# Build and push
-info "Building Docker image..."
-docker build -t ${ECR_REPO} .
-
-docker tag ${ECR_REPO}:latest ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}:latest
-
-info "Pushing to ECR..."
-docker push ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}:latest
-
-log "Docker image pushed to ECR"
-
-# ─── STEP 4: ECS Fargate ───
-CLUSTER="${PROJECT}-cluster"
-SERVICE="${PROJECT}-api"
-TASK_DEF="${PROJECT}-task"
-
-info "Creating ECS cluster: ${CLUSTER}"
-aws ecs create-cluster --cluster-name ${CLUSTER} --region ${REGION} 2>/dev/null || true
-
-# Register task definition
-info "Registering task definition..."
-aws ecs register-task-definition \
-  --family ${TASK_DEF} \
-  --network-mode awsvpc \
-  --requires-compatibilities FARGATE \
-  --cpu "1024" \
-  --memory "2048" \
-  --execution-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole" \
-  --container-definitions "[{
-    \"name\": \"${PROJECT}\",
-    \"image\": \"${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO}:latest\",
-    \"portMappings\": [{\"containerPort\": 3700, \"protocol\": \"tcp\"}],
-    \"environment\": [
-      {\"name\": \"PORT\", \"value\": \"3700\"},
-      {\"name\": \"NODE_ENV\", \"value\": \"production\"}
-    ],
-    \"logConfiguration\": {
-      \"logDriver\": \"awslogs\",
-      \"options\": {
-        \"awslogs-group\": \"/ecs/${PROJECT}\",
-        \"awslogs-region\": \"${REGION}\",
-        \"awslogs-stream-prefix\": \"ecs\"
-      }
-    },
-    \"essential\": true
-  }]"
-
-log "Task definition registered"
-
+# 5. Print outputs
 echo ""
-echo "  ═══════════════════════════════════════════"
-echo "  ✅ Deployment Complete!"
-echo "  ═══════════════════════════════════════════"
+echo "  ─────────────────────────────────"
+echo "  ✓ Deployment complete!"
 echo ""
-echo "  📄 Docs:  https://${BUCKET}.s3.amazonaws.com/docs/index.html"
-echo "  🔧 API:   Will be available after ECS service starts"
-echo "  📦 CDN:   https://cdn.agentdom.dev/v3/agentdom.min.js"
-echo ""
-echo "  Next steps:"
-echo "  1. Create VPC + subnets for ECS (if not exists)"
-echo "  2. Create ALB target group + listener"
-echo "  3. Create ECS service with: aws ecs create-service"
-echo "  4. Point Route53 to CloudFront + ALB"
-echo "  5. Set OPENROUTER_API_KEY in Secrets Manager"
+if [ -f aws/cdk-outputs.json ]; then
+  API=$(node -e "const o=require('./aws/cdk-outputs.json').AgentDOMStack; console.log(o.APIEndpoint)")
+  CDN=$(node -e "const o=require('./aws/cdk-outputs.json').AgentDOMStack; console.log(o.CDNEndpoint)")
+  echo "  API Server  : $API"
+  echo "  CDN / Docs  : $CDN"
+  echo "  Health      : $API/health"
+  echo "  OpenAPI     : $API/openapi.json"
+  echo ""
+  echo "  Test it:"
+  echo "    curl $API/health"
+  echo "    curl -X POST $API/browse -H 'Content-Type: application/json' \\"
+  echo "         -d '{\"url\":\"https://news.ycombinator.com\"}'"
+fi
 echo ""

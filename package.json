@@ -1,8 +1,15 @@
 {
   "name": "agentdom",
-  "version": "3.5.4",
+  "version": "3.5.5",
   "description": "Universal runtime for AI agents — browser, desktop, REST, MCP. OpenClaw-style onboarding.",
   "main": "agentdom.js",
+  "exports": {
+    ".": "./agentdom.js",
+    "./express": "./lib/express-middleware.js",
+    "./nextjs": "./lib/nextjs.js",
+    "./mcp": "./mcp-server.js",
+    "./publisher": "./tools/publisher.mjs"
+  },
   "bin": {
     "agentdom": "cli.js",
     "agentdom-publisher": "tools/publisher.mjs"
@@ -16,6 +23,7 @@
     "mcp-api-server.js",
     "agent-platform.js",
     "lib/",
+    "tools/agentdom.py",
     "integrations/",
     "desktop-agent/",
     "compiler/",

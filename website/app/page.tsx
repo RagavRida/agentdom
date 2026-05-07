@@ -27,6 +27,7 @@ import CodeBlock from '@/components/CodeBlock';
 import HeroOrb from '@/components/HeroOrb';
 import ScrollReveal from '@/components/ScrollReveal';
 import MagneticButton from '@/components/MagneticButton';
+import AgentLogo from '@/components/AgentLogo';
 
 // ── Code snippets ─────────────────────────────────────────────────────────────
 
@@ -97,29 +98,37 @@ const features = [
   { icon: FileCode2, title: '.well-known Standard', desc: 'Open spec. Vendors publish agentdom.json to declare capabilities. Agents discover and use new tools without any code changes.' },
 ];
 
-const providers = [
-  { name: 'Linear',     category: 'Issues',    intents: 8,  auth: 'OAuth2' },
-  { name: 'HubSpot',    category: 'CRM',       intents: 8,  auth: 'OAuth2' },
-  { name: 'Vercel',     category: 'Deploy',    intents: 8,  auth: 'API Key' },
-  { name: 'Slack',      category: 'Messaging', intents: 6,  auth: 'OAuth2' },
-  { name: 'Notion',     category: 'Docs',      intents: 6,  auth: 'OAuth2' },
-  { name: 'Supabase',   category: 'DB',        intents: 7,  auth: 'API Key' },
-  { name: 'Resend',     category: 'Email',     intents: 5,  auth: 'API Key' },
-  { name: 'Cal.com',    category: 'Calendar',  intents: 6,  auth: 'OAuth2' },
-  { name: 'GitHub',     category: 'Code',      intents: 811, auth: 'Device' },
-  { name: 'Stripe',     category: 'Payments',  intents: 442, auth: 'API Key' },
-  { name: 'OpenAI',     category: 'AI',        intents: 5,  auth: 'API Key' },
-  { name: 'Anthropic',  category: 'AI',        intents: 2,  auth: 'API Key' },
+// Intent schema fields shown in the manifest reference grid
+const schemaFields = [
+  { field: 'intent',       type: 'string',    example: '"contacts.create"',        desc: 'Semantic action ID — provider-scoped, versioned' },
+  { field: 'args',         type: 'object',    example: '{ email, name, ... }',      desc: 'Typed parameters — validated against manifest schema' },
+  { field: 'provider',     type: 'string?',   example: '"api.hubspot.com"',         desc: 'Optional — auto-resolved from intent registry if omitted' },
+  { field: 'transport',    type: 'enum',      example: '"api" | "cli" | "browser"', desc: 'Override dispatch priority — default: auto' },
+  { field: 'side_effects', type: 'string[]',  example: '["external", "send"]',      desc: 'Effect classes — gates policy engine before execution' },
+  { field: 'verify',       type: 'string?',   example: '"result.data.id != null"', desc: 'JS expression evaluated post-execution for correctness' },
+  { field: 'timeout_ms',   type: 'number?',   example: '15000',                     desc: 'Per-step timeout — default 15s, overridable per intent' },
+  { field: 'dry_run',      type: 'boolean?',  example: 'true',                      desc: 'Plan-only mode — validate + cost-estimate, no execution' },
 ];
 
-const integrations: { icon: React.ReactNode; label: string }[] = [
-  { icon: <OpenAIIcon size={18} />, label: 'OpenAI' },
-  { icon: <GoogleIcon size={18} />, label: 'Gemini' },
-  { icon: <AnthropicIcon size={18} />, label: 'Claude MCP' },
-  { icon: <LangChainIcon size={18} />, label: 'LangChain' },
-  { icon: <Cpu size={16} />, label: 'CrewAI' },
-  { icon: <Globe size={16} />, label: 'LangGraph' },
-  { icon: <Terminal size={16} />, label: 'Any MCP client' },
+// Auth methods shown in the transport reference grid
+const authMethods = [
+  { method: 'oauth2_pkce',     flow: 'Browser redirect',  secret: false, note: 'S256 code_challenge — no client_secret required' },
+  { method: 'oauth2_device',   flow: 'Device code poll',  secret: false, note: 'RFC 8628 — no browser redirect, works headless' },
+  { method: 'api_key',         flow: 'Header injection',  secret: true,  note: 'Authorization / x-api-key — stored in OS Keychain' },
+  { method: 'agent_tokens',    flow: 'M2M provisioning',  secret: false, note: 'Agent self-provisions scoped token — no human needed' },
+  { method: 'oauth2_cc',       flow: 'Client credentials', secret: true, note: 'Machine-to-machine — no user context' },
+];
+
+// Protocol compatibility badges
+const protocols: { icon: React.ReactNode; label: string }[] = [
+  { icon: <Terminal size={16} />, label: 'MCP (stdio)' },
+  { icon: <Globe size={16} />,    label: 'MCP (SSE)' },
+  { icon: <FileCode2 size={16} />, label: 'OpenAI Function Calling' },
+  { icon: <Cpu size={16} />,      label: 'Anthropic Tool Use' },
+  { icon: <Database size={16} />, label: 'JSON Schema v7' },
+  { icon: <Layers size={16} />,   label: 'OpenAPI 3.x' },
+  { icon: <Lock size={16} />,     label: 'OAuth 2.0 + PKCE' },
+  { icon: <Zap size={16} />,      label: 'RFC 8628 Device Flow' },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -135,16 +144,30 @@ export default function Home() {
         <HeroOrb />
         <div className="hero-container">
           <ScrollReveal delay={0}>
-            <div className="badge"><Star size={12} /> Open Standard · MIT License · v3.1</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+              <div style={{
+                background: 'rgba(249,115,22,0.06)',
+                border: '1px solid rgba(249,115,22,0.2)',
+                borderRadius: '50%',
+                padding: 18,
+                boxShadow: '0 0 40px rgba(249,115,22,0.12)',
+              }}>
+                <AgentLogo size={56} />
+              </div>
+            </div>
+          </ScrollReveal>
+
+          <ScrollReveal delay={60}>
+            <div className="badge"><Star size={12} /> Open Standard · MIT License · v3.2</div>
           </ScrollReveal>
 
           <ScrollReveal delay={100}>
-            <h1>Software built for<br /><span className="gradient">AI agents</span></h1>
+            <h1>The machine-readable<br />interface for <span className="gradient">AI agents</span></h1>
           </ScrollReveal>
 
           <ScrollReveal delay={200}>
             <p className="hero-sub">
-              The next billion users aren't humans — they're AI agents. AgentDOM gives them machine-readable access to any software: APIs, desktops, CLIs. No screenshots. No scraping. One protocol.
+              Agents shouldn't click buttons. <code>dispatch_intent()</code> gives them a typed, transport-agnostic primitive over any API, CLI, browser, or desktop — with OAuth resolved automatically and zero human interaction at runtime.
             </p>
           </ScrollReveal>
 
@@ -170,11 +193,11 @@ export default function Home() {
         <div className="container">
           <ScrollReveal>
             <div className="section-label">[ 01 / 05 ] · The Problem</div>
-            <h2>Agents deserve better than clicking buttons</h2>
+            <h2>Browser automation is the wrong abstraction</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub">
-              Agents are running on software designed for human eyes. They need a completely different foundation.
+              Vision model + CDP screenshot loop = 3–8 s/action, brittle on every deploy, and no structured result to verify. Agents need a stable API contract — not pixel coordinates.
             </p>
           </ScrollReveal>
           <div className="comparison-grid">
@@ -220,12 +243,12 @@ export default function Home() {
       <section className="section" id="how">
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">[ 02 / 05 ] · The Protocol</div>
-            <h2>One intent. Any software.</h2>
+            <div className="section-label">[ 02 / 05 ] · dispatch_intent()</div>
+            <h2>One function. Any transport.</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub">
-              Agents express <em>what</em> they want. AgentDOM figures out <em>how</em> — picking the fastest available transport automatically.
+              Agents pass <code>intent + args + provider</code>. AgentDOM selects the lowest-latency transport — REST API, CLI bridge, Browser CDP, or Desktop AX — and injects the resolved credential automatically.
             </p>
           </ScrollReveal>
           <div className="example-grid">
@@ -255,12 +278,12 @@ export default function Home() {
       <section className="section section-alt" id="auth">
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">[ 03 / 05 ] · Auth Wallet</div>
-            <h2>Tokens that never leave your machine</h2>
+            <div className="section-label">[ 03 / 05 ] · secrets.resolve()</div>
+            <h2>7-source credential waterfall</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub">
-              Unlike Composio or Zapier, AgentDOM is local-first. OAuth tokens live in your OS Keychain. No cloud proxy. One fewer network hop.
+              Agent Token Protocol → env var → base64 wallet → wallet file → OS Keychain → AWS SSM → HashiCorp Vault. Local-first: no cloud token proxy, no escrow service, tokens never leave your infrastructure.
             </p>
           </ScrollReveal>
           <div className="example-grid">
@@ -290,36 +313,59 @@ export default function Home() {
       <section className="section" id="providers">
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">[ 04 / 05 ] · Polyfill Registry</div>
-            <h2>50+ providers. Zero vendor cooperation.</h2>
+            <div className="section-label">[ 04 / 05 ] · Manifest Registry</div>
+            <h2>50+ providers. Zero vendor buy-in.</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub">
-              We generate <code>.well-known/agentdom.json</code> from public OpenAPI specs and host them at <strong>agentdom.dev/manifests/</strong>. 
-              Agents work with any of these on day one — no vendor action required.
+              Polyfill manifests auto-generated from public OpenAPI specs. Each maps semantic intent IDs to REST endpoints, auth headers, side-effect classes, and optional Agent Token Protocol endpoints for M2M token issuance.
             </p>
           </ScrollReveal>
 
           <ScrollReveal delay={150}>
             <div className="example-card" style={{ marginBottom: 32 }}>
-              <div className="card-label">The standard any vendor can publish</div>
+              <div className="card-label">Manifest schema — serve at <code style={{fontSize:11}}>GET /.well-known/agentdom.json</code></div>
               <CodeBlock code={manifestCode} />
             </div>
           </ScrollReveal>
 
-          <ScrollReveal delay={200}>
-            <div className="features" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-              {providers.map((p) => (
-                <div key={p.name} className="feature" style={{ padding: '16px 20px' }}>
+          <ScrollReveal delay={180}>
+            <div className="card-label" style={{ marginBottom: 12 }}>Auth methods supported by the protocol</div>
+            <div className="features" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10, marginBottom: 32 }}>
+              {authMethods.map((a) => (
+                <div key={a.method} className="feature" style={{ padding: '14px 18px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <h3 style={{ fontSize: 15, margin: 0 }}>{p.name}</h3>
-                    <span style={{ fontSize: 11, color: '#6b7280', background: '#111', padding: '2px 7px', borderRadius: 4 }}>{p.category}</span>
+                    <code style={{ fontSize: 12, color: '#f97316' }}>{a.method}</code>
+                    <span style={{ fontSize: 10, color: '#6b7280', background: '#111', padding: '2px 7px', borderRadius: 4 }}>{a.flow}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#4b5563' }}>
-                    {p.intents} intents · {p.auth}
-                  </div>
+                  <div style={{ fontSize: 11, color: '#4b5563', lineHeight: 1.5 }}>{a.note}</div>
                 </div>
               ))}
+            </div>
+          </ScrollReveal>
+
+          <ScrollReveal delay={220}>
+            <div className="card-label" style={{ marginBottom: 12 }}>dispatch_intent() — full parameter reference</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #1f2937' }}>
+                    {['field', 'type', 'example', 'description'].map(h => (
+                      <th key={h} style={{ textAlign: 'left', padding: '8px 12px', color: '#6b7280', fontWeight: 500 }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {schemaFields.map((s, i) => (
+                    <tr key={s.field} style={{ borderBottom: '1px solid #111', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding: '8px 12px', color: '#f97316' }}>{s.field}</td>
+                      <td style={{ padding: '8px 12px', color: '#60a5fa' }}>{s.type}</td>
+                      <td style={{ padding: '8px 12px', color: '#10b981' }}>{s.example}</td>
+                      <td style={{ padding: '8px 12px', color: '#6b7280' }}>{s.desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </ScrollReveal>
         </div>
@@ -329,11 +375,11 @@ export default function Home() {
       <section className="section section-alt" id="features">
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">[ 05 / 05 ] · Runtime</div>
-            <h2>Everything agents need to act autonomously</h2>
+            <div className="section-label">[ 05 / 05 ] · Agent Runtime</div>
+            <h2>Plan → execute → verify → replan</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
-            <p className="section-sub">The runtime layer that makes agents reliable, safe, and self-improving.</p>
+            <p className="section-sub">LLM emits a structured JSON plan. Each step runs through policy check → dispatch_intent → result verification. Failed steps trigger LLM replanning. Session state checkpointed to disk.</p>
           </ScrollReveal>
           <div className="features">
             {features.map((f, i) => (
@@ -349,33 +395,43 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Integrations ── */}
+      {/* ── Protocol Compatibility ── */}
       <section className="section" style={{ textAlign: 'center' }}>
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">Integrations</div>
-            <h2>Works with every agent framework</h2>
+            <div className="section-label">Protocol Compatibility</div>
+            <h2>Implements open standards. No lock-in.</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub" style={{ margin: '0 auto 40px' }}>
-              AgentDOM is an MCP server. Any agent that speaks MCP connects instantly.
+              AgentDOM exposes a native MCP server (<code>stdio</code> + <code>SSE</code>) and implements OpenAI function-calling and Anthropic tool-use schemas out of the box. Any framework that speaks these protocols connects with zero glue code.
             </p>
           </ScrollReveal>
           <ScrollReveal delay={200}>
             <div className="integrations">
-              {integrations.map((i) => (
-                <div className="int-badge" key={i.label}>
-                  {i.icon} {i.label}
+              {protocols.map((p) => (
+                <div className="int-badge" key={p.label}>
+                  {p.icon} {p.label}
                 </div>
               ))}
             </div>
           </ScrollReveal>
           <ScrollReveal delay={300}>
-            <div style={{ marginTop: 40 }}>
-              <div className="example-card" style={{ maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
-                <div className="card-label">Claude Code — add in one command</div>
-                <CodeBlock code={`claude mcp add agentdom-desktop -- node \\
+            <div style={{ marginTop: 40, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, textAlign: 'left' }}>
+              <div className="example-card">
+                <div className="card-label">MCP stdio server (Claude Code / Cursor)</div>
+                <CodeBlock code={`claude mcp add agentdom -- node \\
   $(npm root -g)/agentdom/desktop-mcp-server.js`} small />
+              </div>
+              <div className="example-card">
+                <div className="card-label">OpenAI function-calling schema</div>
+                <CodeBlock code={`const tools = await agentdom.toOpenAI('contacts.create');
+// → { type: "function", function: { name, parameters } }`} small />
+              </div>
+              <div className="example-card">
+                <div className="card-label">HTTP SSE server (any MCP client)</div>
+                <CodeBlock code={`node $(npm root -g)/agentdom/mcp-api-server.js
+# Listens on http://localhost:3001/mcp`} small />
               </div>
             </div>
           </ScrollReveal>
@@ -386,12 +442,12 @@ export default function Home() {
       <section className="section section-alt" style={{ textAlign: 'center' }}>
         <div className="container">
           <ScrollReveal>
-            <div className="section-label">For Publishers</div>
-            <h2>Make your product agent-native</h2>
+            <div className="section-label">For API Publishers</div>
+            <h2>Serve one JSON file. Every agent finds you.</h2>
           </ScrollReveal>
           <ScrollReveal delay={100}>
             <p className="section-sub" style={{ margin: '0 auto 40px' }}>
-              Publish <code>.well-known/agentdom.json</code> and every AI agent that uses AgentDOM can instantly discover and use your product — with no extra integration work.
+              Serve <code>GET /.well-known/agentdom.json</code> — declare intents, auth method, and an Agent Token Protocol endpoint for M2M credential issuance. Zero SDK required. Works with every AgentDOM client immediately.
             </p>
           </ScrollReveal>
           <ScrollReveal delay={200}>
@@ -426,13 +482,13 @@ https://yourapp.com/.well-known/agentdom.json`} small />
       {/* ── CTA ── */}
       <section className="cta section-alt">
         <ScrollReveal>
-          <h2>Build for agents. Start today.</h2>
+          <h2>Zero-install. Running in 30 seconds.</h2>
         </ScrollReveal>
         <ScrollReveal delay={100}>
-          <p>The next billion users aren't human. Give them the interface they need.</p>
+          <p>One-time credential setup. Headless forever. Zero humans in the agent runtime loop.</p>
         </ScrollReveal>
         <ScrollReveal delay={200}>
-          <div className="cta-code">npm install -g agentdom</div>
+          <div className="cta-code">npx agentdom@latest setup linear.app &amp;&amp; agentdom run "file a ticket for the crash"</div>
         </ScrollReveal>
         <ScrollReveal delay={300}>
           <div className="hero-actions" style={{ marginTop: 32 }}>

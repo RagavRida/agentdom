@@ -1,0 +1,13 @@
+{
+  "app": "node aws/cdk-stack.js",
+  "watch": {
+    "include": ["integrations/**", "Dockerfile", "agentdom.js"],
+    "exclude": ["node_modules", "dist", "*.test.js"]
+  },
+  "context": {
+    "@aws-cdk/aws-apigateway:usagePlanKeyOrderInsensitiveId": true,
+    "@aws-cdk/aws-ecs:removeDefaultDesiredCount": true,
+    "@aws-cdk/aws-rds:lowercaseDbIdentifier": true,
+    "@aws-cdk/aws-cloudwatch-actions:changeLambdaPermissionLogicalIdForLambdaAction": true
+  }
+}

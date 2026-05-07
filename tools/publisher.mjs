@@ -11,8 +11,10 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { createServer } from 'http';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VERSION = '1.0';
@@ -359,12 +361,17 @@ async function main() {
   ${c.cyan('submit')}     Register your host in the AgentDOM public registry
               ${c.dim('--host=api.myapp.com')}
 
+  ${c.cyan('mcpuse')}     Generate a mcp-use server scaffold from a manifest
+              ${c.dim('--host=github.com  [--lang=typescript|python]  [--out=./my-server]  [--port=3000]')}
+              ${c.dim('--manifest=./.well-known/agentdom.json  (local file alternative)')}
+
 ${c.bold('Example workflow:')}
   npx agentdom-publisher init --openapi=./openapi.json --host=api.myapp.com
   # → Deploy .well-known/agentdom.json to your server
   npx agentdom-publisher verify --host=api.myapp.com
   npx agentdom-publisher test  --host=api.myapp.com --token=sk-... --intent=contacts.list
   npx agentdom-publisher submit --host=api.myapp.com
+  npx agentdom-publisher mcpuse --host=api.myapp.com --out=./my-mcp-server
 `);
     return;
   }
@@ -453,6 +460,56 @@ ${c.bold('Example workflow:')}
   if (command === 'submit') {
     if (!flags.host) { console.log(c.red('✗ --host is required')); process.exit(1); }
     await submit(flags.host);
+    return;
+  }
+
+  // ── mcpuse ───────────────────────────────────────────────────────────────
+  if (command === 'mcpuse') {
+    const lang    = flags.lang || 'typescript';
+    const outDir  = flags.out  ? resolve(process.cwd(), flags.out) : resolve(process.cwd(), `mcpuse-${flags.host || 'server'}`);
+    const port    = parseInt(flags.port || (lang === 'python' ? '8000' : '3000'), 10);
+    const agentdomApi = flags.api || 'http://localhost:3700';
+
+    let manifest;
+    if (flags.manifest) {
+      // Load from local file
+      const mPath = resolve(process.cwd(), flags.manifest);
+      if (!existsSync(mPath)) { console.log(c.red(`✗ Manifest not found: ${mPath}`)); process.exit(1); }
+      manifest = JSON.parse(readFileSync(mPath, 'utf-8'));
+    } else if (flags.host) {
+      // Fetch from live URL
+      const url = `https://${flags.host}/.well-known/agentdom.json`;
+      console.log(c.dim(`\nFetching manifest from ${url}...`));
+      const res = await fetch(url);
+      if (!res.ok) { console.log(c.red(`✗ Could not fetch manifest (${res.status})`)); process.exit(1); }
+      manifest = await res.json();
+    } else {
+      console.log(c.red('✗ Provide --host=api.myapp.com or --manifest=./path/to/agentdom.json'));
+      process.exit(1);
+    }
+
+    const capCount = manifest.capabilities?.length || 0;
+    console.log(c.green(`✓ Loaded manifest: ${capCount} capabilities for ${manifest.host}`));
+
+    // Dynamic import the compiler (CJS from ESM)
+    const { scaffold } = _require('../compiler/to-mcpuse.js');
+    const { files, dir } = scaffold(manifest, { outDir, lang, agentdomApi, port });
+
+    console.log(c.green(`\n✓ Generated ${lang} mcp-use server → ${dir}`));
+    files.forEach(f => console.log(c.dim(`  ${f}`)));
+
+    console.log(`\n${c.bold('Next steps:')}`);
+    if (lang === 'python') {
+      console.log(`  ${c.cyan('cd')} ${outDir}`);
+      console.log(`  ${c.cyan('pip install')} -r requirements.txt`);
+      console.log(`  ${c.cyan('python')} server.py`);
+    } else {
+      console.log(`  ${c.cyan('cd')} ${outDir}`);
+      console.log(`  ${c.cyan('npm install')}`);
+      console.log(`  ${c.cyan('npm start')}`);
+    }
+    console.log(`  ${c.dim(`Inspector → http://localhost:${port}/inspector`)}`);
+    console.log(`  ${c.dim('Connect this URL to Claude Desktop or any MCP client')}`);
     return;
   }
 

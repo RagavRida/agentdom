@@ -1,10 +1,70 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
 node_modules/
-.DS_Store
-*.log
-.env
-aws/
+.pnp
+.pnp.js
 
-# Generated reports
+# ── Build outputs ─────────────────────────────────────────────────────────────
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+python/dist/
+python/build/
+.venv/
+venv/
+env/
+.Python
+pip-wheel-metadata/
+
+# ── Secrets & env ─────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+desktop.ini
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Test screenshots & debug images ─────────────────────────────────────────
+# Keep: website/public/*.png (brand assets)
+# Remove: root-level screenshots from dev/testing
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+!/website/public/logo.png
+!/website/public/og-image.png
+
+# ── AWS CDK artifacts ─────────────────────────────────────────────────────────
+cdk.out/
+aws/cdk-outputs.json
+
+# ── Generated reports (not source code) ───────────────────────────────────────
 gtm-strategy-*.md
 *-report-*.md
 tools/demo-*.js
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.turbo/
+.vercel/
+coverage/
+.nyc_output/

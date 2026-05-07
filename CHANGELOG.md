@@ -7,6 +7,58 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ---
 
+## [3.6.0] — 2026-05-07
+
+### Added
+
+**Embedding SDKs** — any app can expose itself to AI agents in ~10 lines
+- `agentdom/express` (`lib/express-middleware.js`) — Express.js middleware: serves `/.well-known/agentdom.json` + routes `POST /api/agentdom/<intent>` to handlers
+- `agentdom/nextjs` (`lib/nextjs.js`) — Next.js SDK: App Router (`GET`/`POST` handlers), Pages Router handler, Edge Middleware for `/.well-known/agentdom.json`
+- `tools/agentdom.py` — Python SDK with `@agent.capability()` decorator; `agent.register(app)` auto-detects Flask or FastAPI
+- `package.json` exports map: `agentdom/express`, `agentdom/nextjs`, `agentdom/mcp`, `agentdom/publisher`
+
+**mcp-use Bridge** (`compiler/to-mcpuse.js` + `agentdom-publisher mcpuse`)
+- `npx agentdom-publisher mcpuse --host=<host>` — fetches live manifest and generates a fully working mcp-use server scaffold
+- `--lang=python` — generates Python variant with `mcp_use` + `httpx`
+- `--out=<dir>` — output directory; `--port=3000`
+- Generated server includes mcp-use Inspector at `/inspector` out of the box
+- `slugify()` with `operation_id` fallback handles malformed intent names
+
+**AWS CDK Stack** (`aws/cdk-stack.js` + `cdk.json` + `deploy-aws.sh`)
+- `./deploy-aws.sh sk-or-v1-...` — one command deploys full production stack
+- ECS Fargate 2 GB / 1 vCPU + Puppeteer/Chromium container
+- Application Load Balancer → `api.getagentdom.com`
+- CloudFront CDN for `agentdom.js` + docs (S3)
+- Secrets Manager auto-injects `OPENROUTER_API_KEY`
+- Auto-scaling 1→5 tasks on CPU/request load
+- CloudWatch dashboard + 14-day log retention
+- Route 53 DNS (optional via `HOSTED_ZONE_ID`)
+
+**PyPI Package** (`python/`)
+- `pip install agentdom` — first-party Python SDK on PyPI
+- Optional extras: `agentdom[flask]`, `agentdom[fastapi]`, `agentdom[dispatch]`, `agentdom[all]`
+- `dispatch_intent()` async + `dispatch_intent_sync()` sync consumer-side function
+- `python/pyproject.toml` with hatchling build system
+- `.github/workflows/publish-pypi.yml` — auto-publishes on every `v*` tag via OIDC trusted publishing
+
+**CLI Onboarding Wizard** (`commands/onboard.js`)
+- Full-width ASCII "scanning eye" logo in brand orange
+- Guided TUI: LLM provider → API key → integration setup → browser detection → smoke test → CI wallet export
+- `agentdom doctor` health-check command
+- Fixed terminal freeze after secret input (ephemeral `readline` instances)
+
+**README** — full rewrite in mcp-use style: badges, 3-tab quickstart (JS/Python/CLI), routing diagram, transport table, integrations table, embedding SDK examples
+
+### Fixed
+- `agentdom.py` flake8 F401/F811: removed unused `json`, `functools`, `Dict`, `Any`, `Optional`, top-level `asyncio` imports
+- `browser.fill` multi-strategy selector — no more `Input not found` on GitHub forms
+
+### Chore
+- Removed from repo: `yc-coding-session.md`, `website/Users:.fileloc`, `website/dns-change.json`, debug screenshots, `python/dist/` build artifacts
+- `.gitignore` hardened: blocks `*.fileloc`, `*-session.md`, `python/dist/`, root `*.png`, `cdk.out/`
+
+---
+
 ## [3.2.0] — 2026-05-06
 
 ### Added

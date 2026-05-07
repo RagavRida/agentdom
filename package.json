@@ -1,7 +1,7 @@
 {
   "name": "agentdom",
-  "version": "3.5.5",
-  "description": "Universal runtime for AI agents — browser, desktop, REST, MCP. OpenClaw-style onboarding.",
+  "version": "3.6.0",
+  "description": "Universal AI agent runtime — any software, any transport (API/browser/desktop/MCP). Express, Next.js & Python SDKs. Publisher CLI. AWS-ready.",
   "main": "agentdom.js",
   "exports": {
     ".": "./agentdom.js",

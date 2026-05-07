@@ -32,10 +32,8 @@ Usage (standalone manifest):
     manifest = agent.manifest()   # dict ready to serve as JSON
 """
 
-import json
 import datetime
-import functools
-from typing import Callable, Dict, Any, Optional, List
+from typing import Callable, List
 
 
 class AgentCapability:

@@ -1,0 +1,67 @@
+name: Publish Python package to PyPI
+
+on:
+  # Trigger on npm publish tags (v*) — keeps JS and Python versions in sync
+  push:
+    tags:
+      - 'v*'
+  # Also allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.1)'
+        required: false
+
+jobs:
+  build-and-publish:
+    name: Build and publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi          # requires PYPI_TOKEN secret in this environment
+
+    permissions:
+      id-token: write          # required for OIDC trusted publishing
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tools
+        run: pip install build hatchling twine
+
+      - name: Update version from tag
+        working-directory: python
+        run: |
+          TAG="${GITHUB_REF_NAME:-}"
+          if [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "Setting Python package version to $VERSION"
+            sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          fi
+
+      - name: Build wheel + sdist
+        working-directory: python
+        run: python -m build
+
+      - name: Check dist
+        working-directory: python
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist/
+          # Uses OIDC trusted publishing — no API token needed if configured on PyPI
+          # Fallback: uncomment below and add PYPI_TOKEN secret
+          # password: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "### ✅ PyPI Publish" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Package **agentdom** published to [pypi.org/project/agentdom](https://pypi.org/project/agentdom/)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentdom"
+version = "1.0.0"
+description = "The universal runtime that makes every website, desktop app, and API accessible to AI agents — zero human in the loop."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "Ragavendhra Machikatla", email = "hi@getagentdom.com" }
+]
+keywords = [
+  "ai", "agents", "mcp", "automation", "browser", "rpa",
+  "llm", "agentdom", "dispatch", "protocol"
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.9"
+
+# Core has no required dependencies — web framework support is optional
+dependencies = []
+
+[project.optional-dependencies]
+flask    = ["flask>=2.0"]
+fastapi  = ["fastapi>=0.100", "uvicorn>=0.20"]
+dispatch = ["httpx>=0.25"]
+all      = ["flask>=2.0", "fastapi>=0.100", "uvicorn>=0.20", "httpx>=0.25"]
+dev      = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.25", "flake8>=7", "build", "twine"]
+
+[project.urls]
+Homepage      = "https://getagentdom.com"
+Documentation = "https://getagentdom.com/docs/python"
+Repository    = "https://github.com/RagavRida/agentdom"
+Changelog     = "https://github.com/RagavRida/agentdom/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/RagavRida/agentdom/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentdom"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "agentdom/",
+  "README.md",
+  "LICENSE",
+  "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths    = ["tests"]
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore   = ["E501"]

@@ -31,16 +31,19 @@ import sys
 import time
 from typing import Any
 
+PYATSPI_AVAILABLE = True
 try:
     import pyatspi
 except ImportError:
-    print(json.dumps({"error": "pyatspi2 not installed. Run: pip install pyatspi2"}))
-    sys.exit(1)
+    PYATSPI_AVAILABLE = False
+    pyatspi = None
 
 INPUT_METHOD = os.getenv('ATSPI_INPUT', 'ydotool')  # ydotool (Wayland) or xdotool (X11)
 
 def _check_atspi_daemon():
     """Verify AT-SPI2 daemon is running, return True or raise clear error."""
+    if not PYATSPI_AVAILABLE:
+        raise RuntimeError("pyatspi2 not installed. Run: pip install pyatspi2")
     try:
         pyatspi.Registry.getDesktop(0)
         return True

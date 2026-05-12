@@ -299,7 +299,7 @@ def click(app_name: str, label: str, target_idx: int = 1) -> dict:
     """Click element by label."""
     app = find_app(app_name)
     if not app:
-        return {"clicked": False, "error": "App not running", "app": app_name}
+        return {"clicked": False, "error": "App not running", "app": app_name, "index": target_idx}
     
     state = {"matched": 0, "target": None}
     
@@ -373,7 +373,7 @@ def type_into(app_name: str, field_label: str, text: str, target_idx: int = 1) -
     """Type text into field by label."""
     app = find_app(app_name)
     if not app:
-        return {"typed": False, "error": "App not running", "app": app_name}
+        return {"typed": False, "error": "App not running", "app": app_name, "index": target_idx}
     
     _, _, FIELD_ROLES = get_role_mappings()
     state = {"matched": 0, "target": None}

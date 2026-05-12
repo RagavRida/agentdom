@@ -51,9 +51,6 @@ def _check_atspi_daemon():
             f"  Original error: {e}"
         )
 
-# Verify daemon at module init
-_check_atspi_daemon()
-
 def type_text(text: str) -> tuple[bool, str]:
     """Type text using ydotool (Wayland) or xdotool (X11) fallback."""
     # Try ydotool first (Wayland-native)
@@ -229,6 +226,11 @@ def walk(acc, depth: int, max_depth: int, parent_path: str, out: list) -> None:
 
 def find_app(app_name: str):
     """Find running application by name."""
+    try:
+        _check_atspi_daemon()
+    except RuntimeError:
+        return None
+    
     target = _norm(app_name)
     desktop = pyatspi.Registry.getDesktop(0)
     
@@ -240,6 +242,11 @@ def find_app(app_name: str):
 
 def list_running_apps() -> list:
     """List all running applications visible via AT-SPI."""
+    try:
+        _check_atspi_daemon()
+    except RuntimeError as e:
+        return []
+    
     out = []
     desktop = pyatspi.Registry.getDesktop(0)
     

@@ -461,30 +461,35 @@ def main(argv: list[str]) -> None:
             if len(argv) < 3:
                 print(json.dumps({"error": "scan requires <app_name>"}))
                 return
-            print(json.dumps(scan(argv[2])))
+            result = scan(argv[2])
+            print(json.dumps(result if result is not None else []))
         
         elif verb == "click":
             if len(argv) < 4:
                 print(json.dumps({"error": "click requires <app_name> <label> [index]"}))
                 return
             idx = int(argv[4]) if len(argv) >= 5 and argv[4] else 1
-            print(json.dumps(click(argv[2], argv[3], idx)))
+            result = click(argv[2], argv[3], idx)
+            print(json.dumps(result))
         
         elif verb == "type":
             if len(argv) < 5:
                 print(json.dumps({"error": "type requires <app_name> <field_label> <text> [index]"}))
                 return
             idx = int(argv[5]) if len(argv) >= 6 and argv[5] else 1
-            print(json.dumps(type_into(argv[2], argv[3], argv[4], idx)))
+            result = type_into(argv[2], argv[3], argv[4], idx)
+            print(json.dumps(result))
         
         elif verb == "list_apps":
-            print(json.dumps(list_running_apps()))
+            result = list_running_apps()
+            print(json.dumps(result if result is not None else []))
         
         elif verb == "is_running":
             if len(argv) < 3:
                 print(json.dumps({"error": "is_running requires <app_name>"}))
                 return
-            print(json.dumps({"running": find_app(argv[2]) is not None}))
+            app = find_app(argv[2])
+            print(json.dumps({"running": app is not None}))
         
         else:
             print(json.dumps({"error": f"Unknown verb: {verb}"}))

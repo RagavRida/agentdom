@@ -17,9 +17,18 @@ function run(verb, ...args) {
     const out = execFileSync('python3', [BRIDGE, verb, ...args], {
       encoding: 'utf-8',
       timeout: 5000,
+      stderr: 'pipe',
     }).trim();
+    if (!out) {
+      console.error(`Empty output for: ${verb} ${args.join(' ')}`);
+      return { error: 'Empty output' };
+    }
     return JSON.parse(out);
   } catch (e) {
+    console.error(`Error running: ${verb} ${args.join(' ')}`);
+    console.error('Exit code:', e.status);
+    console.error('Stdout:', e.stdout?.toString());
+    console.error('Stderr:', e.stderr?.toString());
     if (e.stdout) {
       try {
         return JSON.parse(e.stdout.trim());

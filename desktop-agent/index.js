@@ -99,10 +99,11 @@ async function withRetry(fn, { retries = 1, delay = 500 } = {}) {
 
 // ════════════════════════════════════════════════
 //  Direct AX bridge — bypasses System Events for SwiftUI / hidden apps.
-//  Calls desktop-agent/ax-bridge.py via execFileSync (shell-safe).
+//  Calls desktop-agent/ax-bridge.py (macOS) or atspi-bridge.py (Linux)
+//  via execFileSync (shell-safe).
 // ════════════════════════════════════════════════
 
-const AX_BRIDGE = path.join(__dirname, 'ax-bridge.py');
+const AX_BRIDGE = path.join(__dirname, PLATFORM === 'linux' ? 'atspi-bridge.py' : 'ax-bridge.py');
 
 function axBridge(verb, ...args) {
   const out = execFileSync('python3', [AX_BRIDGE, verb, ...args.map(String)], {

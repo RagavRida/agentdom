@@ -76,39 +76,45 @@ def type_text(text: str) -> tuple[bool, str]:
 def _norm(s: str) -> str:
     return s.strip().lower() if s else ""
 
-# Role mapping to match ax-bridge.py output format
-ROLE_TO_TYPE = {
-    pyatspi.ROLE_PUSH_BUTTON: "button",
-    pyatspi.ROLE_TEXT: "text_input",
-    pyatspi.ROLE_ENTRY: "text_input",
-    pyatspi.ROLE_PASSWORD_TEXT: "text_input",
-    pyatspi.ROLE_PARAGRAPH: "text_area",
-    pyatspi.ROLE_CHECK_BOX: "checkbox",
-    pyatspi.ROLE_RADIO_BUTTON: "radio",
-    pyatspi.ROLE_COMBO_BOX: "combo_box",
-    pyatspi.ROLE_MENU_ITEM: "menu_item",
-    pyatspi.ROLE_MENU: "menu",
-    pyatspi.ROLE_LINK: "link",
-    pyatspi.ROLE_TAB: "tab",
-    pyatspi.ROLE_LABEL: "label",
-    pyatspi.ROLE_SLIDER: "slider",
-    pyatspi.ROLE_SCROLL_BAR: "scroll_area",
-    pyatspi.ROLE_TABLE: "table",
-    pyatspi.ROLE_TREE: "tree_view",
-    pyatspi.ROLE_SEARCH_BAR: "search_field",
-}
-
-INTERACTIVE_ROLES = {
-    pyatspi.ROLE_PUSH_BUTTON, pyatspi.ROLE_TEXT, pyatspi.ROLE_ENTRY,
-    pyatspi.ROLE_PASSWORD_TEXT, pyatspi.ROLE_CHECK_BOX, pyatspi.ROLE_RADIO_BUTTON,
-    pyatspi.ROLE_COMBO_BOX, pyatspi.ROLE_MENU_ITEM, pyatspi.ROLE_LINK,
-    pyatspi.ROLE_TAB, pyatspi.ROLE_SEARCH_BAR, pyatspi.ROLE_SLIDER,
-}
-
-FIELD_ROLES = {
-    pyatspi.ROLE_TEXT, pyatspi.ROLE_ENTRY, pyatspi.ROLE_PASSWORD_TEXT,
-    pyatspi.ROLE_PARAGRAPH, pyatspi.ROLE_SEARCH_BAR,
-}
+def get_role_mappings():
+    """Get role mappings - only callable when pyatspi is available."""
+    if not PYATSPI_AVAILABLE:
+        return {}, set(), set()
+    
+    ROLE_TO_TYPE = {
+        pyatspi.ROLE_PUSH_BUTTON: "button",
+        pyatspi.ROLE_TEXT: "text_input",
+        pyatspi.ROLE_ENTRY: "text_input",
+        pyatspi.ROLE_PASSWORD_TEXT: "text_input",
+        pyatspi.ROLE_PARAGRAPH: "text_area",
+        pyatspi.ROLE_CHECK_BOX: "checkbox",
+        pyatspi.ROLE_RADIO_BUTTON: "radio",
+        pyatspi.ROLE_COMBO_BOX: "combo_box",
+        pyatspi.ROLE_MENU_ITEM: "menu_item",
+        pyatspi.ROLE_MENU: "menu",
+        pyatspi.ROLE_LINK: "link",
+        pyatspi.ROLE_TAB: "tab",
+        pyatspi.ROLE_LABEL: "label",
+        pyatspi.ROLE_SLIDER: "slider",
+        pyatspi.ROLE_SCROLL_BAR: "scroll_area",
+        pyatspi.ROLE_TABLE: "table",
+        pyatspi.ROLE_TREE: "tree_view",
+        pyatspi.ROLE_SEARCH_BAR: "search_field",
+    }
+    
+    INTERACTIVE_ROLES = {
+        pyatspi.ROLE_PUSH_BUTTON, pyatspi.ROLE_TEXT, pyatspi.ROLE_ENTRY,
+        pyatspi.ROLE_PASSWORD_TEXT, pyatspi.ROLE_CHECK_BOX, pyatspi.ROLE_RADIO_BUTTON,
+        pyatspi.ROLE_COMBO_BOX, pyatspi.ROLE_MENU_ITEM, pyatspi.ROLE_LINK,
+        pyatspi.ROLE_TAB, pyatspi.ROLE_SEARCH_BAR, pyatspi.ROLE_SLIDER,
+    }
+    
+    FIELD_ROLES = {
+        pyatspi.ROLE_TEXT, pyatspi.ROLE_ENTRY, pyatspi.ROLE_PASSWORD_TEXT,
+        pyatspi.ROLE_PARAGRAPH, pyatspi.ROLE_SEARCH_BAR,
+    }
+    
+    return ROLE_TO_TYPE, INTERACTIVE_ROLES, FIELD_ROLES
 
 MAX_DEPTH_DEFAULT = 8
 MAX_CHILDREN_PER_NODE = 80
@@ -136,6 +142,9 @@ def jsonable(v: Any) -> Any:
 
 def describe(role: int, label: str, val: Any) -> str:
     """Generate human-readable description for element."""
+    if not PYATSPI_AVAILABLE:
+        return label
+    
     label_l = label.lower() if label else ""
     if role == pyatspi.ROLE_PUSH_BUTTON:
         return "Click to " + (label_l or "perform action")
@@ -177,6 +186,8 @@ def walk(acc, depth: int, max_depth: int, parent_path: str, out: list) -> None:
     """Recursively walk AT-SPI tree and collect interactive elements."""
     if depth > max_depth or len(out) >= MAX_TOTAL_ELEMENTS:
         return
+    
+    ROLE_TO_TYPE, INTERACTIVE_ROLES, FIELD_ROLES = get_role_mappings()
     
     try:
         role = acc.getRole()
@@ -364,6 +375,7 @@ def type_into(app_name: str, field_label: str, text: str, target_idx: int = 1) -
     if not app:
         return {"typed": False, "error": "App not running", "app": app_name}
     
+    _, _, FIELD_ROLES = get_role_mappings()
     state = {"matched": 0, "target": None}
     
     def visit(acc, depth: int):

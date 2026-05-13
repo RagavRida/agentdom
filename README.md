@@ -36,6 +36,53 @@ AgentDOM is the missing infrastructure layer between AI agents and the internet.
 - **Publisher SDK** (`npx agentdom-publisher`): Expose your software to AI agents via `.well-known/agentdom.json` in minutes
 - **mcp-use bridge** (`npx agentdom-publisher mcpuse`): Turn any manifest into a working Claude/Cursor MCP server instantly
 
+## Quick Start
+
+### As a CLI
+
+```bash
+npm install -g agentdom
+
+agentdom doctor              # check system health
+agentdom auth github.com     # authenticate with a provider
+agentdom tokens              # list authed providers
+agentdom validate --all      # validate bundled manifests
+agentdom serve               # start the MCP server (stdio)
+agentdom serve --http        # start the HTTP API server instead
+```
+
+Run `agentdom --help` for the full list of subcommands.
+
+### As a Library
+
+```bash
+npm install agentdom
+```
+
+```js
+const { auth, registry, compiler } = require('agentdom');
+
+const config = registry.resolve('github.com');
+const token  = await auth.token('github.com');
+```
+
+Top-level exports: `auth`, `keychain`, `registry`, `runtime`, `planner`,
+`policy`, `memory`, `resilience`, `connectionPool`, `tokenCache`,
+`compiler`, `discover`, `platform`. Each subtree is lazy-loaded — only
+the modules you touch are required.
+
+### As an MCP Server (Claude Desktop / Cursor)
+
+Add to `claude_desktop_config.json` (or the equivalent for your IDE):
+
+```json
+{
+  "mcpServers": {
+    "agentdom": { "command": "agentdom", "args": ["serve"] }
+  }
+}
+```
+
 ## Install
 
 ```bash

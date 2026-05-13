@@ -1,111 +1,96 @@
 {
   "name": "agentdom",
-  "version": "3.6.0",
-  "description": "Universal AI agent runtime — any software, any transport (API/browser/desktop/MCP). Express, Next.js & Python SDKs. Publisher CLI. AWS-ready.",
-  "main": "agentdom.js",
+  "version": "0.5.0",
+  "description": "Universal agent-to-software runtime. Any AI agent controls any software through a single protocol.",
+  "main": "./index.js",
   "exports": {
-    ".": "./agentdom.js",
-    "./express": "./lib/express-middleware.js",
-    "./nextjs": "./lib/nextjs.js",
-    "./mcp": "./mcp-server.js",
+    ".":           "./index.js",
+    "./cli":       "./bin/agentdom.js",
+    "./express":   "./lib/express-middleware.js",
+    "./nextjs":    "./lib/nextjs.js",
+    "./mcp":       "./mcp-server.js",
     "./publisher": "./tools/publisher.mjs"
   },
   "bin": {
-    "agentdom": "cli.js",
-    "agentdom-publisher": "tools/publisher.mjs"
+    "agentdom":           "./bin/agentdom.js",
+    "agentdom-publisher": "./tools/publisher.mjs"
   },
   "files": [
-    "agentdom.js",
-    "cli.js",
-    "mcp-server.js",
-    "desktop-mcp-server.js",
-    "mcp-cli-server.js",
-    "mcp-api-server.js",
-    "agent-platform.js",
+    "bin/",
     "lib/",
-    "tools/agentdom.py",
-    "integrations/",
-    "desktop-agent/",
-    "compiler/",
     "commands/",
+    "compiler/",
+    "desktop-agent/",
     "manifests/",
     "tools/",
-    "docs/",
+    "integrations/",
+    "index.js",
+    "agentdom.js",
+    "agent-platform.js",
+    "desktop-mcp-server.js",
+    "mcp-server.js",
+    "mcp-cli-server.js",
+    "mcp-api-server.js",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "cli": "node cli.js",
-    "init": "node cli.js init",
-    "desktop": "node cli.js --desktop",
-    "server": "node integrations/http-server.js",
-    "mcp": "node mcp-server.js",
+    "cli":         "node bin/agentdom.js",
+    "doctor":      "node bin/agentdom.js doctor",
+    "serve":       "node bin/agentdom.js serve",
+    "serve:http":  "node bin/agentdom.js serve --http",
+    "init":        "node cli.js init",
+    "server":      "node integrations/http-server.js",
+    "mcp":         "node mcp-server.js",
     "mcp:desktop": "node desktop-mcp-server.js",
-    "mcp:cli": "node mcp-cli-server.js",
-    "mcp:api": "node mcp-api-server.js",
-    "a2a": "node integrations/a2a.js",
-    "openai": "node integrations/openai.js",
-    "gemini": "node integrations/gemini.js",
-    "test": "node --test test/*.test.js",
-    "test:compiler": "node compiler/__test__.js",
-    "test:mcp": "node test/mcp-servers.test.js",
-    "test:launch": "node test/launch-flow.demo.js",
-    "test:electron": "node test/electron-bridge.demo.js",
-    "test:linux": "node test/linux-atspi.test.js",
-    "demo:linux": "node test/linux-atspi.demo.js",
+    "mcp:cli":     "node mcp-cli-server.js",
+    "mcp:api":     "node mcp-api-server.js",
+    "a2a":         "node integrations/a2a.js",
+    "openai":      "node integrations/openai.js",
+    "gemini":      "node integrations/gemini.js",
+    "test":        "node --test test/*.test.js",
+    "test:compiler":"node compiler/__test__.js",
+    "test:mcp":    "node test/mcp-servers.test.js",
     "test:wallet": "node --test test/wallet-auth.test.js",
-    "validate": "node tools/validate-manifest.js --all",
-    "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
-    "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
-    "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",
-    "build:all": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64,node18-win-x64,node18-linux-x64 --out-path dist/"
-  },
-  "pkg": {
-    "assets": [
-      "agentdom.js",
-      "integrations/**/*",
-      "mcp-server.js"
-    ],
-    "scripts": [
-      "cli.js"
-    ]
+    "validate":    "node tools/validate-manifest.js --all"
   },
   "keywords": [
-    "ai-agent",
-    "browser-automation",
-    "web-agent",
+    "agent",
     "mcp",
+    "automation",
+    "agentdom",
+    "ai-agent",
+    "tool-use",
+    "ai-native",
+    "browser-automation",
+    "desktop-automation",
+    "function-calling",
     "openai",
     "gemini",
-    "function-calling",
-    "autonomous",
-    "a2a",
-    "agent-to-agent",
-    "agentdom",
-    "desktop-automation",
-    "ai-native",
+    "universal-runtime",
     "schema",
-    "universal-runtime"
+    "a2a"
   ],
   "author": "AgentDOM",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RagavRida/agentdom.git"
+    "url":  "https://github.com/RagavRida/agentdom.git"
   },
   "homepage": "https://getagentdom.com",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "cors": "^2.8.5",
-    "express": "^4.21.0",
-    "keytar": "^7.9.0",
-    "uuid": "^11.1.0"
+    "commander":                 "^14.0.3",
+    "cors":                      "^2.8.5",
+    "express":                   "^4.21.0",
+    "keytar":                    "^7.9.0",
+    "uuid":                      "^11.1.0"
   },
   "optionalDependencies": {
-    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra":                "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=18.0.0"
   }
 }

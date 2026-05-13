@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "host": "replicate.com",
+  "name": "Replicate",
+  "description": "AgentDOM polyfill manifest for Replicate — run ML models via API.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}"
+  },
+  "capabilities": [
+    {
+      "intent": "predictions.create",
+      "description": "Run a model prediction.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.replicate.com/v1/predictions",
+      "args": {
+        "version": { "type": "string", "required": true, "description": "Model version ID (sha256)" },
+        "input": { "type": "object", "required": true, "description": "Model input parameters" },
+        "webhook": { "type": "string", "required": false, "description": "Webhook URL for completion" }
+      },
+      "side_effects": ["external"],
+      "cost": 3
+    },
+    {
+      "intent": "predictions.get",
+      "description": "Get the status of a prediction.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.replicate.com/v1/predictions/{prediction_id}",
+      "args": {
+        "prediction_id": { "type": "string", "required": true, "description": "Prediction ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "predictions.list",
+      "description": "List recent predictions.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.replicate.com/v1/predictions",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "models.get",
+      "description": "Get info about a model.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.replicate.com/v1/models/{owner}/{name}",
+      "args": {
+        "owner": { "type": "string", "required": true, "description": "Model owner" },
+        "name": { "type": "string", "required": true, "description": "Model name" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "models.search",
+      "description": "Search for public models.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.replicate.com/v1/models",
+      "args": {
+        "query": { "type": "string", "required": false, "description": "Search query" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 5,
+    "api_type": "rest",
+    "base_url": "https://api.replicate.com/v1",
+    "docs": "https://replicate.com/docs/reference/http"
+  }
+}

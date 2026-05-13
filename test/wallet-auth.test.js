@@ -140,12 +140,13 @@ describe('OAuth Registry', () => {
     assert.ok(config.auth_url.includes('figma.com'), 'Should have figma auth_url');
   });
 
-  it('should resolve API key providers', () => {
-    const config = registry.resolve('pinecone.io');
-    assert.ok(config, 'pinecone.io should resolve');
+  it('should resolve API key providers from built-in', () => {
+    // twilio.com has a built-in entry but no bundled polyfill manifest
+    const config = registry.resolve('twilio.com');
+    assert.ok(config, 'twilio.com should resolve');
     assert.equal(config.method, 'api_key');
-    assert.equal(config.key_header, 'Api-Key');
-    assert.equal(config.key_env, 'PINECONE_API_KEY');
+    assert.equal(config.key_header, 'Authorization');
+    assert.equal(config.key_env, 'TWILIO_AUTH_TOKEN');
   });
 
   it('should resolve device flow providers from built-in', () => {

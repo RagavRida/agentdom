@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "host": "datadog.com",
+  "name": "Datadog",
+  "description": "AgentDOM polyfill manifest for Datadog — monitoring, metrics, logs, and alerting.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "DD-API-KEY",
+    "key_format": "{token}"
+  },
+  "capabilities": [
+    {
+      "intent": "metrics.query",
+      "description": "Query timeseries metrics data.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.datadoghq.com/api/v1/query",
+      "args": {
+        "from": { "type": "number", "required": true, "description": "Start of query window (UNIX epoch seconds)" },
+        "to": { "type": "number", "required": true, "description": "End of query window (UNIX epoch seconds)" },
+        "query": { "type": "string", "required": true, "description": "Datadog metrics query (e.g. 'avg:system.cpu.user{*}')" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "monitors.list",
+      "description": "List all monitors (alerts).",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.datadoghq.com/api/v1/monitor",
+      "args": {
+        "tags": { "type": "string", "required": false, "description": "Comma-separated tags to filter" },
+        "name": { "type": "string", "required": false, "description": "Filter by monitor name substring" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "monitors.create",
+      "description": "Create a new monitor (alert).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.datadoghq.com/api/v1/monitor",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Monitor name" },
+        "type": { "type": "string", "required": true, "description": "Monitor type (metric alert, service check, etc.)" },
+        "query": { "type": "string", "required": true, "description": "Monitor query" },
+        "message": { "type": "string", "required": false, "description": "Notification message" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "events.list",
+      "description": "Search and list events from the event stream.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.datadoghq.com/api/v1/events",
+      "args": {
+        "start": { "type": "number", "required": true, "description": "UNIX epoch seconds" },
+        "end": { "type": "number", "required": true, "description": "UNIX epoch seconds" },
+        "tags": { "type": "string", "required": false, "description": "Comma-separated tags" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "logs.search",
+      "description": "Search logs using Datadog's log search API.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.datadoghq.com/api/v2/logs/events/search",
+      "args": {
+        "query": { "type": "string", "required": true, "description": "Log search query" },
+        "from": { "type": "string", "required": false, "description": "Start time (ISO 8601)" },
+        "to": { "type": "string", "required": false, "description": "End time (ISO 8601)" },
+        "limit": { "type": "number", "required": false, "description": "Max results (default 10)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "dashboards.list",
+      "description": "List all dashboards.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.datadoghq.com/api/v1/dashboard",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.datadoghq.com",
+    "docs": "https://docs.datadoghq.com/api/"
+  }
+}

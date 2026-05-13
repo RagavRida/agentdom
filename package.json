@@ -53,6 +53,8 @@
     "test:electron": "node test/electron-bridge.demo.js",
     "test:linux": "node test/linux-atspi.test.js",
     "demo:linux": "node test/linux-atspi.demo.js",
+    "test:wallet": "node --test test/wallet-auth.test.js",
+    "validate": "node tools/validate-manifest.js --all",
     "build:mac": "npx -y pkg ./cli.js --targets node18-macos-x64,node18-macos-arm64 --out-path dist/",
     "build:win": "npx -y pkg ./cli.js --targets node18-win-x64 --out-path dist/",
     "build:linux": "npx -y pkg ./cli.js --targets node18-linux-x64 --out-path dist/",

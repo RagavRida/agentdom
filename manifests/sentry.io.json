@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "host": "sentry.io",
+  "name": "Sentry",
+  "description": "AgentDOM polyfill manifest for Sentry — error tracking, performance monitoring, and issue management.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}"
+  },
+  "capabilities": [
+    {
+      "intent": "issues.list",
+      "description": "List issues for a project. Supports search queries and sorting.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://sentry.io/api/0/projects/{organization_slug}/{project_slug}/issues/",
+      "args": {
+        "organization_slug": { "type": "string", "required": true, "description": "Organization slug" },
+        "project_slug": { "type": "string", "required": true, "description": "Project slug" },
+        "query": { "type": "string", "required": false, "description": "Search query (e.g. 'is:unresolved')" },
+        "sort": { "type": "string", "required": false, "description": "Sort by: date, new, priority, freq, user" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.get",
+      "description": "Get details of a specific issue by ID.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://sentry.io/api/0/issues/{issue_id}/",
+      "args": {
+        "issue_id": { "type": "string", "required": true, "description": "Issue ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.update",
+      "description": "Update an issue (resolve, assign, etc.).",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://sentry.io/api/0/issues/{issue_id}/",
+      "args": {
+        "issue_id": { "type": "string", "required": true, "description": "Issue ID" },
+        "status": { "type": "string", "required": false, "description": "resolved, unresolved, ignored" },
+        "assignedTo": { "type": "string", "required": false, "description": "User or team to assign to" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "events.list",
+      "description": "List events for an issue.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://sentry.io/api/0/issues/{issue_id}/events/",
+      "args": {
+        "issue_id": { "type": "string", "required": true, "description": "Issue ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "projects.list",
+      "description": "List all projects for an organization.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://sentry.io/api/0/organizations/{organization_slug}/projects/",
+      "args": {
+        "organization_slug": { "type": "string", "required": true, "description": "Organization slug" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "releases.list",
+      "description": "List releases for a project.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://sentry.io/api/0/organizations/{organization_slug}/releases/",
+      "args": {
+        "organization_slug": { "type": "string", "required": true, "description": "Organization slug" },
+        "project": { "type": "string", "required": false, "description": "Filter by project slug" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://sentry.io/api/0",
+    "docs": "https://docs.sentry.io/api/"
+  }
+}

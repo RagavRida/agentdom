@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "host": "pinecone.io",
+  "name": "Pinecone",
+  "description": "AgentDOM polyfill manifest for Pinecone — vector database for AI/ML embeddings.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Api-Key",
+    "key_format": "{token}"
+  },
+  "capabilities": [
+    {
+      "intent": "vectors.upsert",
+      "description": "Upsert vectors into an index.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{index_host}/vectors/upsert",
+      "args": {
+        "index_host": { "type": "string", "required": true, "description": "Index host URL (from index description)" },
+        "vectors": { "type": "array", "required": true, "description": "Array of {id, values, metadata} objects" },
+        "namespace": { "type": "string", "required": false, "description": "Namespace for the vectors" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "vectors.query",
+      "description": "Query vectors by similarity.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{index_host}/query",
+      "args": {
+        "index_host": { "type": "string", "required": true, "description": "Index host URL" },
+        "vector": { "type": "array", "required": true, "description": "Query vector (array of floats)" },
+        "topK": { "type": "number", "required": true, "description": "Number of results to return" },
+        "namespace": { "type": "string", "required": false, "description": "Namespace to query" },
+        "includeMetadata": { "type": "boolean", "required": false, "description": "Include metadata in results" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "vectors.delete",
+      "description": "Delete vectors by ID or filter.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{index_host}/vectors/delete",
+      "args": {
+        "index_host": { "type": "string", "required": true, "description": "Index host URL" },
+        "ids": { "type": "array", "required": false, "description": "Vector IDs to delete" },
+        "deleteAll": { "type": "boolean", "required": false, "description": "Delete all vectors in namespace" },
+        "namespace": { "type": "string", "required": false, "description": "Namespace" }
+      },
+      "side_effects": ["delete", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "indexes.list",
+      "description": "List all indexes in the project.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.pinecone.io/indexes",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "indexes.create",
+      "description": "Create a new serverless or pod-based index.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.pinecone.io/indexes",
+      "args": {
+        "name": { "type": "string", "required": true, "description": "Index name" },
+        "dimension": { "type": "number", "required": true, "description": "Vector dimension" },
+        "metric": { "type": "string", "required": false, "description": "Distance metric: cosine, euclidean, dotproduct" },
+        "spec": { "type": "object", "required": true, "description": "Index spec {serverless: {cloud, region}}" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "indexes.describe",
+      "description": "Get details about an index.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.pinecone.io/indexes/{index_name}",
+      "args": {
+        "index_name": { "type": "string", "required": true, "description": "Name of the index" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.pinecone.io",
+    "docs": "https://docs.pinecone.io/reference/api/introduction"
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "host": "sendgrid.com",
+  "name": "SendGrid",
+  "description": "AgentDOM polyfill manifest for SendGrid — transactional email and marketing campaigns.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}"
+  },
+  "capabilities": [
+    {
+      "intent": "mail.send",
+      "description": "Send an email via SendGrid's v3 Mail Send endpoint.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.sendgrid.com/v3/mail/send",
+      "args": {
+        "to": { "type": "array", "required": true, "description": "Array of recipient objects [{email, name}]" },
+        "from": { "type": "object", "required": true, "description": "Sender {email, name}" },
+        "subject": { "type": "string", "required": true, "description": "Email subject line" },
+        "content": { "type": "array", "required": true, "description": "Array of content objects [{type, value}] (text/plain or text/html)" },
+        "reply_to": { "type": "object", "required": false, "description": "Reply-to {email, name}" }
+      },
+      "side_effects": ["send", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "contacts.list",
+      "description": "List marketing contacts.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.sendgrid.com/v3/marketing/contacts/search",
+      "args": {
+        "query": { "type": "string", "required": false, "description": "SGQL query string" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "contacts.create",
+      "description": "Add or update marketing contacts.",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://api.sendgrid.com/v3/marketing/contacts",
+      "args": {
+        "contacts": { "type": "array", "required": true, "description": "Array of contact objects [{email, first_name, last_name, ...}]" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "templates.list",
+      "description": "List dynamic email templates.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.sendgrid.com/v3/templates",
+      "args": {
+        "generations": { "type": "string", "required": false, "description": "Filter: legacy or dynamic" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "stats.get",
+      "description": "Get global email statistics.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.sendgrid.com/v3/stats",
+      "args": {
+        "start_date": { "type": "string", "required": true, "description": "Start date YYYY-MM-DD" },
+        "end_date": { "type": "string", "required": false, "description": "End date YYYY-MM-DD" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 5,
+    "api_type": "rest",
+    "base_url": "https://api.sendgrid.com",
+    "docs": "https://docs.sendgrid.com/api-reference"
+  }
+}

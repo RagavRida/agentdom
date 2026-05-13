@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "host": "posthog.com",
+  "name": "PostHog",
+  "description": "AgentDOM polyfill manifest for PostHog — product analytics, feature flags, and session replay.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}"
+  },
+  "capabilities": [
+    {
+      "intent": "events.capture",
+      "description": "Capture a single event.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://app.posthog.com/capture/",
+      "args": {
+        "event": { "type": "string", "required": true, "description": "Event name" },
+        "distinct_id": { "type": "string", "required": true, "description": "User distinct ID" },
+        "properties": { "type": "object", "required": false, "description": "Event properties" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "events.query",
+      "description": "Query events using HogQL.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://app.posthog.com/api/projects/{project_id}/query/",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project ID" },
+        "query": { "type": "object", "required": true, "description": "HogQL query object {kind: 'HogQLQuery', query: '...'}" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "feature_flags.list",
+      "description": "List all feature flags.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://app.posthog.com/api/projects/{project_id}/feature_flags/",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "feature_flags.create",
+      "description": "Create a feature flag.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://app.posthog.com/api/projects/{project_id}/feature_flags/",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project ID" },
+        "key": { "type": "string", "required": true, "description": "Feature flag key" },
+        "name": { "type": "string", "required": false, "description": "Display name" },
+        "filters": { "type": "object", "required": false, "description": "Rollout filters" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "persons.list",
+      "description": "List persons (users) in the project.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://app.posthog.com/api/projects/{project_id}/persons/",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project ID" },
+        "search": { "type": "string", "required": false, "description": "Search by email, name, or distinct_id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "insights.list",
+      "description": "List saved insights (charts/reports).",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://app.posthog.com/api/projects/{project_id}/insights/",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project ID" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://app.posthog.com/api",
+    "docs": "https://posthog.com/docs/api"
+  }
+}

@@ -30,6 +30,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { atomicWrite, fetchRetry } = require('../lib/resilience');
 const keychain = require('../lib/keychain');
+const tokenCache = require('../lib/token-cache');
 const { pkceAuth, OAUTH_REGISTRY } = require('../lib/oauth-pkce');
 
 const WALLET_DIR = path.join(os.homedir(), '.agentdom');
@@ -423,8 +424,10 @@ function sanitize(entry) {
 async function token(provider) {
   const host = normalizeHost(provider);
 
-  // 1. Keychain (preferred — faster + more secure)
-  const kToken = await keychain.getToken(host);
+  // 1. In-memory cache (Phase 4) — falls through to keychain on miss.
+  // Cached entries are auto-invalidated when keychain.setToken/deleteToken
+  // fire (see lib/keychain.onTokenChange).
+  const kToken = await tokenCache.getCached(host);
   if (kToken) {
     if (!keychain.isExpired(kToken)) {
       if (kToken.method === 'oauth2')  return { provider: host, method: 'oauth2',  access_token: kToken.access_token,  scopes: kToken.scope };

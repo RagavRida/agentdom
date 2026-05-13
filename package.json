@@ -1,6 +1,6 @@
 {
   "name": "agentdom",
-  "version": "0.5.0",
+  "version": "3.7.0",
   "description": "Universal agent-to-software runtime. Any AI agent controls any software through a single protocol.",
   "main": "./index.js",
   "exports": {

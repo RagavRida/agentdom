@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "host": "zendesk.com",
+  "name": "Zendesk Support",
+  "description": "AgentDOM polyfill manifest for Zendesk Support — tickets, users, and search.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Basic {token}",
+    "obtain_url": "https://www.zendesk.com/api-reference/ticketing/introduction/",
+    "note": "Token must be base64('email/token:apitoken') for the subdomain."
+  },
+  "capabilities": [
+    {
+      "intent": "tickets.list",
+      "description": "List tickets in a Zendesk subdomain.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/tickets.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true,  "description": "Zendesk subdomain" },
+        "page":      { "type": "number", "required": false, "description": "Page number (pagination)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "tickets.get",
+      "description": "Get a single ticket by id.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/tickets/{id}.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true, "description": "Zendesk subdomain" },
+        "id":        { "type": "string", "required": true, "description": "Ticket id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "tickets.create",
+      "description": "Create a ticket.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/tickets.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true, "description": "Zendesk subdomain" },
+        "ticket":    { "type": "object", "required": true, "description": "{ subject, comment:{body}, requester?, priority?, tags? }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "tickets.update",
+      "description": "Update a ticket (add comments, change status, etc.).",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/tickets/{id}.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true, "description": "Zendesk subdomain" },
+        "id":        { "type": "string", "required": true, "description": "Ticket id" },
+        "ticket":    { "type": "object", "required": true, "description": "Updated fields" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "search.query",
+      "description": "Search tickets, users, organisations, and groups.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/search.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true, "description": "Zendesk subdomain" },
+        "query":     { "type": "string", "required": true, "description": "Search expression (e.g. 'type:ticket status:open')" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "users.create",
+      "description": "Create an end-user or agent.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{subdomain}.zendesk.com/api/v2/users.json",
+      "args": {
+        "subdomain": { "type": "string", "required": true, "description": "Zendesk subdomain" },
+        "user":      { "type": "object", "required": true, "description": "{ name, email, role? }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://{subdomain}.zendesk.com",
+    "docs": "https://developer.zendesk.com/api-reference/ticketing/introduction/"
+  }
+}

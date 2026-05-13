@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "host": "airtable.com",
+  "name": "Airtable",
+  "description": "AgentDOM polyfill manifest for Airtable — bases, tables, and records via REST.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "obtain_url": "https://airtable.com/create/tokens"
+  },
+  "capabilities": [
+    {
+      "intent": "records.list",
+      "description": "List records in a table.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.airtable.com/v0/{baseId}/{tableId}",
+      "args": {
+        "baseId":  { "type": "string", "required": true,  "description": "Base id (e.g. appXXXXXXXXXXXXXX)" },
+        "tableId": { "type": "string", "required": true,  "description": "Table id or name" },
+        "pageSize":{ "type": "number", "required": false, "description": "Records per page (max 100)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "records.create",
+      "description": "Create one or more records.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.airtable.com/v0/{baseId}/{tableId}",
+      "args": {
+        "baseId":  { "type": "string", "required": true,  "description": "Base id" },
+        "tableId": { "type": "string", "required": true,  "description": "Table id or name" },
+        "records": { "type": "array",  "required": true,  "description": "Array of { fields: {...} } records (≤10)" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "records.update",
+      "description": "Update an existing record (PATCH preserves other fields).",
+      "transport": "api",
+      "method": "PATCH",
+      "endpoint": "https://api.airtable.com/v0/{baseId}/{tableId}/{recordId}",
+      "args": {
+        "baseId":   { "type": "string", "required": true,  "description": "Base id" },
+        "tableId":  { "type": "string", "required": true,  "description": "Table id or name" },
+        "recordId": { "type": "string", "required": true,  "description": "Record id (rec...)" },
+        "fields":   { "type": "object", "required": true,  "description": "Fields to update" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "records.delete",
+      "description": "Delete a record.",
+      "transport": "api",
+      "method": "DELETE",
+      "endpoint": "https://api.airtable.com/v0/{baseId}/{tableId}/{recordId}",
+      "args": {
+        "baseId":   { "type": "string", "required": true,  "description": "Base id" },
+        "tableId":  { "type": "string", "required": true,  "description": "Table id or name" },
+        "recordId": { "type": "string", "required": true,  "description": "Record id" }
+      },
+      "side_effects": ["delete"],
+      "cost": 1
+    },
+    {
+      "intent": "bases.list",
+      "description": "List bases accessible to the current token.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.airtable.com/v0/meta/bases",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "schema.get",
+      "description": "Get a base's table + field schema.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.airtable.com/v0/meta/bases/{baseId}/tables",
+      "args": {
+        "baseId": { "type": "string", "required": true, "description": "Base id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.airtable.com",
+    "docs": "https://airtable.com/developers/web/api/introduction"
+  }
+}

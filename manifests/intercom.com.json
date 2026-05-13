@@ -1,0 +1,107 @@
+{
+  "version": "1.0",
+  "host": "intercom.com",
+  "name": "Intercom",
+  "description": "AgentDOM polyfill manifest for Intercom — contacts, conversations, and messages.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://app.intercom.com/oauth",
+    "auth_url":      "https://app.intercom.com/oauth",
+    "token_url":     "https://api.intercom.io/auth/eagle/token",
+    "scopes": []
+  },
+  "capabilities": [
+    {
+      "intent": "contacts.search",
+      "description": "Search contacts using Intercom's search DSL.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.intercom.io/contacts/search",
+      "args": {
+        "query":      { "type": "object", "required": true,  "description": "{ field, operator, value } or { operator: 'AND', value: [...] }" },
+        "pagination": { "type": "object", "required": false, "description": "{ per_page, starting_after? }" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "contacts.create",
+      "description": "Create a contact (user or lead).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.intercom.io/contacts",
+      "args": {
+        "role":          { "type": "string", "required": true,  "description": "'user' or 'lead'" },
+        "email":         { "type": "string", "required": false, "description": "Contact email" },
+        "external_id":   { "type": "string", "required": false, "description": "Your system's id for this contact" },
+        "name":          { "type": "string", "required": false, "description": "Display name" },
+        "custom_attributes": { "type": "object", "required": false, "description": "Workspace-defined custom data" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "conversations.list",
+      "description": "List conversations.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.intercom.io/conversations",
+      "args": {
+        "per_page": { "type": "number", "required": false, "description": "Results per page (≤150)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "conversations.reply",
+      "description": "Reply to an existing conversation.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.intercom.io/conversations/{id}/reply",
+      "args": {
+        "id":           { "type": "string", "required": true, "description": "Conversation id" },
+        "message_type": { "type": "string", "required": true, "description": "'comment' | 'note'" },
+        "type":         { "type": "string", "required": true, "description": "'admin' | 'user'" },
+        "admin_id":     { "type": "string", "required": false, "description": "Required when type=admin" },
+        "body":         { "type": "string", "required": true, "description": "Reply body" }
+      },
+      "side_effects": ["send", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "messages.create",
+      "description": "Send an outbound in-app message or email.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.intercom.io/messages",
+      "args": {
+        "message_type": { "type": "string", "required": true, "description": "'inapp' | 'email'" },
+        "subject":      { "type": "string", "required": false, "description": "Required for email" },
+        "body":         { "type": "string", "required": true, "description": "Message body" },
+        "from":         { "type": "object", "required": true, "description": "{ type:'admin', id }" },
+        "to":           { "type": "object", "required": true, "description": "{ type:'user', id|email }" }
+      },
+      "side_effects": ["send", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "tags.list",
+      "description": "List tags configured in the workspace.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.intercom.io/tags",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.intercom.io",
+    "docs": "https://developers.intercom.com/docs/references/rest-api"
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "version": "1.0",
+  "host": "figma.com",
+  "name": "Figma",
+  "description": "AgentDOM polyfill manifest for Figma — files, nodes, and comments.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2_pkce",
+    "authorize_url": "https://www.figma.com/oauth",
+    "auth_url":      "https://www.figma.com/oauth",
+    "token_url":     "https://www.figma.com/api/oauth/token",
+    "scopes": ["file_read", "file_content:read", "file_comments:write"]
+  },
+  "capabilities": [
+    {
+      "intent": "files.get",
+      "description": "Get a file's document tree and metadata.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.figma.com/v1/files/{file_key}",
+      "args": {
+        "file_key": { "type": "string", "required": true,  "description": "File key (from the Figma URL)" },
+        "depth":    { "type": "number", "required": false, "description": "Tree depth limit" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "files.nodes",
+      "description": "Get specific nodes from a file by id.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.figma.com/v1/files/{file_key}/nodes",
+      "args": {
+        "file_key": { "type": "string", "required": true, "description": "File key" },
+        "ids":      { "type": "string", "required": true, "description": "Comma-separated node ids" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "files.images",
+      "description": "Render images for a list of node ids.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.figma.com/v1/images/{file_key}",
+      "args": {
+        "file_key": { "type": "string", "required": true,  "description": "File key" },
+        "ids":      { "type": "string", "required": true,  "description": "Comma-separated node ids" },
+        "format":   { "type": "string", "required": false, "description": "jpg | png | svg | pdf" },
+        "scale":    { "type": "number", "required": false, "description": "0.01..4 (raster only)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "comments.list",
+      "description": "List comments on a file.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.figma.com/v1/files/{file_key}/comments",
+      "args": {
+        "file_key": { "type": "string", "required": true, "description": "File key" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "comments.create",
+      "description": "Post a comment on a file.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.figma.com/v1/files/{file_key}/comments",
+      "args": {
+        "file_key":     { "type": "string", "required": true,  "description": "File key" },
+        "message":      { "type": "string", "required": true,  "description": "Comment body" },
+        "client_meta":  { "type": "object", "required": false, "description": "Pin position { x, y } or node { node_id, node_offset }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "team.projects",
+      "description": "List projects within a team.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.figma.com/v1/teams/{team_id}/projects",
+      "args": {
+        "team_id": { "type": "string", "required": true, "description": "Team id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.figma.com",
+    "docs": "https://www.figma.com/developers/api"
+  }
+}

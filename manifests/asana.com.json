@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "host": "asana.com",
+  "name": "Asana",
+  "description": "AgentDOM polyfill manifest for Asana — tasks, projects, and workspaces.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://app.asana.com/-/oauth_authorize",
+    "auth_url":      "https://app.asana.com/-/oauth_authorize",
+    "token_url":     "https://app.asana.com/-/oauth_token",
+    "scopes": ["default"]
+  },
+  "capabilities": [
+    {
+      "intent": "tasks.list",
+      "description": "List tasks for a project, user, or workspace.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://app.asana.com/api/1.0/tasks",
+      "args": {
+        "project":   { "type": "string", "required": false, "description": "Project gid" },
+        "assignee":  { "type": "string", "required": false, "description": "Assignee user gid or 'me'" },
+        "workspace": { "type": "string", "required": false, "description": "Workspace gid (required when filtering by assignee)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "tasks.create",
+      "description": "Create a task in a project or workspace.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://app.asana.com/api/1.0/tasks",
+      "args": {
+        "data": { "type": "object", "required": true, "description": "{ name, notes?, assignee?, projects: [...] }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "tasks.update",
+      "description": "Update an existing task.",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://app.asana.com/api/1.0/tasks/{task_gid}",
+      "args": {
+        "task_gid": { "type": "string", "required": true, "description": "Task gid" },
+        "data":     { "type": "object", "required": true, "description": "Fields to update" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "tasks.complete",
+      "description": "Mark a task as completed (or reopen it).",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://app.asana.com/api/1.0/tasks/{task_gid}",
+      "args": {
+        "task_gid":  { "type": "string",  "required": true, "description": "Task gid" },
+        "completed": { "type": "boolean", "required": true, "description": "true to complete, false to reopen" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "projects.list",
+      "description": "List projects in a workspace.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://app.asana.com/api/1.0/projects",
+      "args": {
+        "workspace": { "type": "string", "required": false, "description": "Workspace gid" },
+        "team":      { "type": "string", "required": false, "description": "Team gid" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "comments.create",
+      "description": "Add a comment story to a task.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://app.asana.com/api/1.0/tasks/{task_gid}/stories",
+      "args": {
+        "task_gid": { "type": "string", "required": true, "description": "Task gid" },
+        "data":     { "type": "object", "required": true, "description": "{ text: '...' }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://app.asana.com/api/1.0",
+    "docs": "https://developers.asana.com/reference"
+  }
+}

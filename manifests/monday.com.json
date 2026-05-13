@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "host": "monday.com",
+  "name": "monday.com",
+  "description": "AgentDOM polyfill manifest for monday.com — boards, items, and updates via GraphQL.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "{token}",
+    "obtain_url": "https://monday.com/developers/v2"
+  },
+  "capabilities": [
+    {
+      "intent": "boards.list",
+      "description": "List boards in the account.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "GraphQL query (e.g. 'query { boards(limit: 50) { id name } }')" },
+        "variables": { "type": "object", "required": false, "description": "GraphQL variables" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "items.list",
+      "description": "List items on a board (paged via items_page).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "GraphQL query selecting board.items_page" },
+        "variables": { "type": "object", "required": false, "description": "{ boardId, limit, cursor }" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "items.create",
+      "description": "Create an item on a board.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "mutation { create_item(board_id, item_name, column_values) { id } }" },
+        "variables": { "type": "object", "required": false, "description": "{ boardId, itemName, columnValues }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "items.update",
+      "description": "Change a column value on an item.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "mutation { change_column_value(...) }" },
+        "variables": { "type": "object", "required": false, "description": "{ boardId, itemId, columnId, value }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "items.delete",
+      "description": "Delete an item.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "mutation { delete_item(item_id: $itemId) { id } }" },
+        "variables": { "type": "object", "required": false, "description": "{ itemId }" }
+      },
+      "side_effects": ["delete"],
+      "cost": 1
+    },
+    {
+      "intent": "updates.create",
+      "description": "Post an update (comment) on an item.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.monday.com/v2",
+      "args": {
+        "query":     { "type": "string", "required": true,  "description": "mutation { create_update(item_id: $itemId, body: $body) { id } }" },
+        "variables": { "type": "object", "required": false, "description": "{ itemId, body }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "graphql",
+    "base_url": "https://api.monday.com",
+    "docs": "https://developer.monday.com/api-reference/docs"
+  }
+}

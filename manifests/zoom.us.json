@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "host": "zoom.us",
+  "name": "Zoom",
+  "description": "AgentDOM polyfill manifest for Zoom — meetings, webinars, and users.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://zoom.us/oauth/authorize",
+    "auth_url":      "https://zoom.us/oauth/authorize",
+    "token_url":     "https://zoom.us/oauth/token",
+    "scopes": ["meeting:write", "meeting:read", "user:read"]
+  },
+  "capabilities": [
+    {
+      "intent": "users.me",
+      "description": "Return the current authenticated user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.zoom.us/v2/users/me",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "meetings.list",
+      "description": "List meetings owned by a user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.zoom.us/v2/users/{userId}/meetings",
+      "args": {
+        "userId": { "type": "string", "required": true,  "description": "User id or 'me'" },
+        "type":   { "type": "string", "required": false, "description": "scheduled | live | upcoming | upcoming_meetings | previous_meetings" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "meetings.create",
+      "description": "Schedule a new meeting for a user.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.zoom.us/v2/users/{userId}/meetings",
+      "args": {
+        "userId":     { "type": "string", "required": true,  "description": "User id or 'me'" },
+        "topic":      { "type": "string", "required": true,  "description": "Meeting topic" },
+        "type":       { "type": "number", "required": false, "description": "1=instant, 2=scheduled, 3=recurring no fixed time, 8=recurring fixed" },
+        "start_time": { "type": "string", "required": false, "description": "ISO-8601 (UTC or with timezone)" },
+        "duration":   { "type": "number", "required": false, "description": "Duration in minutes" },
+        "agenda":     { "type": "string", "required": false, "description": "Meeting agenda" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "meetings.get",
+      "description": "Get a meeting by id.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.zoom.us/v2/meetings/{meetingId}",
+      "args": {
+        "meetingId": { "type": "string", "required": true, "description": "Meeting id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "meetings.delete",
+      "description": "Delete a scheduled meeting.",
+      "transport": "api",
+      "method": "DELETE",
+      "endpoint": "https://api.zoom.us/v2/meetings/{meetingId}",
+      "args": {
+        "meetingId": { "type": "string", "required": true, "description": "Meeting id" }
+      },
+      "side_effects": ["delete"],
+      "cost": 1
+    },
+    {
+      "intent": "recordings.list",
+      "description": "List cloud recordings for a user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.zoom.us/v2/users/{userId}/recordings",
+      "args": {
+        "userId": { "type": "string", "required": true,  "description": "User id or 'me'" },
+        "from":   { "type": "string", "required": false, "description": "YYYY-MM-DD" },
+        "to":     { "type": "string", "required": false, "description": "YYYY-MM-DD" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.zoom.us",
+    "docs": "https://developers.zoom.us/docs/api/"
+  }
+}

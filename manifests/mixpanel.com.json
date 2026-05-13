@@ -1,0 +1,91 @@
+{
+  "version": "1.0",
+  "host": "mixpanel.com",
+  "name": "Mixpanel",
+  "description": "AgentDOM polyfill manifest for Mixpanel — event ingestion and JQL/Insights queries.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Basic {token}",
+    "obtain_url": "https://mixpanel.com/settings/project/serviceaccounts"
+  },
+  "capabilities": [
+    {
+      "intent": "events.track",
+      "description": "Send one or more events to Mixpanel ingestion.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.mixpanel.com/track",
+      "args": {
+        "data": { "type": "array", "required": true, "description": "Array of event objects [{ event, properties: { token, distinct_id, ... } }]" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "engage.set",
+      "description": "Update people profiles ($set / $set_once / $add operations).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.mixpanel.com/engage",
+      "args": {
+        "data": { "type": "array", "required": true, "description": "Array of engage operations" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "import.events",
+      "description": "Server-side import of historical events (requires Service Account).",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.mixpanel.com/import",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project id" },
+        "data":       { "type": "array",  "required": true, "description": "Array of events with $insert_id and time" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "query.segmentation",
+      "description": "Run a segmentation query for an event.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://mixpanel.com/api/2.0/segmentation",
+      "args": {
+        "project_id": { "type": "string", "required": true,  "description": "Project id" },
+        "event":      { "type": "string", "required": true,  "description": "Event name" },
+        "from_date":  { "type": "string", "required": true,  "description": "YYYY-MM-DD" },
+        "to_date":    { "type": "string", "required": true,  "description": "YYYY-MM-DD" },
+        "where":      { "type": "string", "required": false, "description": "Filter expression" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "query.funnels",
+      "description": "Compute a funnel report.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://mixpanel.com/api/2.0/funnels",
+      "args": {
+        "project_id": { "type": "string", "required": true, "description": "Project id" },
+        "funnel_id":  { "type": "string", "required": true, "description": "Saved funnel id" },
+        "from_date":  { "type": "string", "required": true, "description": "YYYY-MM-DD" },
+        "to_date":    { "type": "string", "required": true, "description": "YYYY-MM-DD" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 5,
+    "api_type": "rest",
+    "base_url": "https://api.mixpanel.com",
+    "docs": "https://developer.mixpanel.com/reference/overview"
+  }
+}

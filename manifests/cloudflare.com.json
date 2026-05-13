@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "host": "cloudflare.com",
+  "name": "Cloudflare",
+  "description": "AgentDOM polyfill manifest for Cloudflare API v4 — zones, DNS, and Workers.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "api_key",
+    "key_header": "Authorization",
+    "key_format": "Bearer {token}",
+    "obtain_url": "https://dash.cloudflare.com/profile/api-tokens"
+  },
+  "capabilities": [
+    {
+      "intent": "zones.list",
+      "description": "List zones (domains) owned by the account.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones",
+      "args": {
+        "name":   { "type": "string", "required": false, "description": "Filter by zone name (exact)" },
+        "status": { "type": "string", "required": false, "description": "active | pending | initializing | moved | deleted" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "dns_records.list",
+      "description": "List DNS records for a zone.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records",
+      "args": {
+        "zoneId": { "type": "string", "required": true,  "description": "Zone id" },
+        "type":   { "type": "string", "required": false, "description": "Record type (A, AAAA, CNAME, ...)" },
+        "name":   { "type": "string", "required": false, "description": "Record name filter" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "dns_records.create",
+      "description": "Create a new DNS record.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records",
+      "args": {
+        "zoneId":   { "type": "string",  "required": true,  "description": "Zone id" },
+        "type":     { "type": "string",  "required": true,  "description": "A | AAAA | CNAME | TXT | MX | ..." },
+        "name":     { "type": "string",  "required": true,  "description": "Record name (e.g. www.example.com)" },
+        "content":  { "type": "string",  "required": true,  "description": "Record value" },
+        "ttl":      { "type": "number",  "required": false, "description": "TTL in seconds (1 = automatic)" },
+        "proxied":  { "type": "boolean", "required": false, "description": "Route through Cloudflare proxy" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "dns_records.update",
+      "description": "Update a DNS record.",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records/{recordId}",
+      "args": {
+        "zoneId":   { "type": "string",  "required": true, "description": "Zone id" },
+        "recordId": { "type": "string",  "required": true, "description": "DNS record id" },
+        "type":     { "type": "string",  "required": true, "description": "Record type" },
+        "name":     { "type": "string",  "required": true, "description": "Record name" },
+        "content":  { "type": "string",  "required": true, "description": "Record value" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "dns_records.delete",
+      "description": "Delete a DNS record.",
+      "transport": "api",
+      "method": "DELETE",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records/{recordId}",
+      "args": {
+        "zoneId":   { "type": "string", "required": true, "description": "Zone id" },
+        "recordId": { "type": "string", "required": true, "description": "DNS record id" }
+      },
+      "side_effects": ["delete"],
+      "cost": 1
+    },
+    {
+      "intent": "cache.purge",
+      "description": "Purge all or selected URLs from the Cloudflare cache for a zone.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.cloudflare.com/client/v4/zones/{zoneId}/purge_cache",
+      "args": {
+        "zoneId":      { "type": "string",  "required": true,  "description": "Zone id" },
+        "purge_everything": { "type": "boolean", "required": false, "description": "Purge entire cache" },
+        "files":       { "type": "array",   "required": false, "description": "URLs to purge (max 30)" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.cloudflare.com",
+    "docs": "https://developers.cloudflare.com/api/"
+  }
+}

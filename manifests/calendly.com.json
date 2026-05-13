@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "host": "calendly.com",
+  "name": "Calendly",
+  "description": "AgentDOM polyfill manifest for Calendly — scheduled events and event types.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://auth.calendly.com/oauth/authorize",
+    "auth_url":      "https://auth.calendly.com/oauth/authorize",
+    "token_url":     "https://auth.calendly.com/oauth/token",
+    "scopes": ["default"]
+  },
+  "capabilities": [
+    {
+      "intent": "user.me",
+      "description": "Return the current authenticated user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.calendly.com/users/me",
+      "args": {},
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "event_types.list",
+      "description": "List event types owned by a user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.calendly.com/event_types",
+      "args": {
+        "user":   { "type": "string", "required": true,  "description": "User URI" },
+        "active": { "type": "boolean","required": false, "description": "Filter to active event types" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "events.list",
+      "description": "List scheduled events.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.calendly.com/scheduled_events",
+      "args": {
+        "user":            { "type": "string", "required": true,  "description": "User URI" },
+        "min_start_time":  { "type": "string", "required": false, "description": "ISO-8601 start" },
+        "max_start_time":  { "type": "string", "required": false, "description": "ISO-8601 end" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "events.get",
+      "description": "Get a single scheduled event.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.calendly.com/scheduled_events/{uuid}",
+      "args": {
+        "uuid": { "type": "string", "required": true, "description": "Scheduled event uuid" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "events.cancel",
+      "description": "Cancel a scheduled event.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.calendly.com/scheduled_events/{uuid}/cancellation",
+      "args": {
+        "uuid":   { "type": "string", "required": true,  "description": "Scheduled event uuid" },
+        "reason": { "type": "string", "required": false, "description": "Optional cancellation reason" }
+      },
+      "side_effects": ["delete", "external"],
+      "cost": 1
+    },
+    {
+      "intent": "invitees.list",
+      "description": "List invitees for a scheduled event.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.calendly.com/scheduled_events/{uuid}/invitees",
+      "args": {
+        "uuid": { "type": "string", "required": true, "description": "Scheduled event uuid" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.calendly.com",
+    "docs": "https://developer.calendly.com/api-docs"
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "version": "1.0",
+  "host": "shopify.com",
+  "name": "Shopify Admin API",
+  "description": "AgentDOM polyfill manifest for Shopify Admin REST API — products, orders, customers.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://{shop}.myshopify.com/admin/oauth/authorize",
+    "auth_url":      "https://{shop}.myshopify.com/admin/oauth/authorize",
+    "token_url":     "https://{shop}.myshopify.com/admin/oauth/access_token",
+    "scopes": ["read_products", "write_products", "read_orders", "write_orders", "read_customers", "write_customers"]
+  },
+  "capabilities": [
+    {
+      "intent": "products.list",
+      "description": "List products in the store.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/products.json",
+      "args": {
+        "shop":   { "type": "string", "required": true,  "description": "Shop subdomain (without .myshopify.com)" },
+        "limit":  { "type": "number", "required": false, "description": "Results per page (≤250)" },
+        "status": { "type": "string", "required": false, "description": "active | archived | draft" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "products.create",
+      "description": "Create a new product.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/products.json",
+      "args": {
+        "shop":    { "type": "string", "required": true, "description": "Shop subdomain" },
+        "product": { "type": "object", "required": true, "description": "Product object { title, body_html, variants: [...] }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "products.update",
+      "description": "Update an existing product.",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/products/{id}.json",
+      "args": {
+        "shop":    { "type": "string", "required": true, "description": "Shop subdomain" },
+        "id":      { "type": "string", "required": true, "description": "Product id" },
+        "product": { "type": "object", "required": true, "description": "Fields to update" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "orders.list",
+      "description": "List orders.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/orders.json",
+      "args": {
+        "shop":           { "type": "string", "required": true,  "description": "Shop subdomain" },
+        "status":         { "type": "string", "required": false, "description": "open | closed | cancelled | any" },
+        "financial_status":{"type": "string", "required": false, "description": "paid | refunded | ..." },
+        "created_at_min": { "type": "string", "required": false, "description": "ISO date" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "orders.cancel",
+      "description": "Cancel an order.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/orders/{id}/cancel.json",
+      "args": {
+        "shop":   { "type": "string", "required": true,  "description": "Shop subdomain" },
+        "id":     { "type": "string", "required": true,  "description": "Order id" },
+        "reason": { "type": "string", "required": false, "description": "customer | inventory | fraud | declined | other" }
+      },
+      "side_effects": ["external", "delete"],
+      "cost": 1
+    },
+    {
+      "intent": "customers.search",
+      "description": "Search customers.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/customers/search.json",
+      "args": {
+        "shop":  { "type": "string", "required": true, "description": "Shop subdomain" },
+        "query": { "type": "string", "required": true, "description": "Search query (e.g. 'email:foo@bar.com')" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "customers.create",
+      "description": "Create a customer.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{shop}.myshopify.com/admin/api/2024-07/customers.json",
+      "args": {
+        "shop":     { "type": "string", "required": true, "description": "Shop subdomain" },
+        "customer": { "type": "object", "required": true, "description": "{ email, first_name, last_name, ... }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 7,
+    "api_type": "rest",
+    "base_url": "https://{shop}.myshopify.com",
+    "docs": "https://shopify.dev/docs/api/admin-rest"
+  }
+}

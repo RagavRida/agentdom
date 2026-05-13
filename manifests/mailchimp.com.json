@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "host": "mailchimp.com",
+  "name": "Mailchimp",
+  "description": "AgentDOM polyfill manifest for Mailchimp — audiences, members, and campaigns.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://login.mailchimp.com/oauth2/authorize",
+    "auth_url":      "https://login.mailchimp.com/oauth2/authorize",
+    "token_url":     "https://login.mailchimp.com/oauth2/token",
+    "scopes": []
+  },
+  "capabilities": [
+    {
+      "intent": "lists.list",
+      "description": "List audiences (Mailchimp 'lists') on the account.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/lists",
+      "args": {
+        "server": { "type": "string", "required": true,  "description": "Datacenter prefix (e.g. us21) from OAuth metadata" },
+        "count":  { "type": "number", "required": false, "description": "Results per page (≤1000)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "members.list",
+      "description": "List members of an audience.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/lists/{list_id}/members",
+      "args": {
+        "server":  { "type": "string", "required": true, "description": "Datacenter prefix" },
+        "list_id": { "type": "string", "required": true, "description": "Audience id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "members.upsert",
+      "description": "Add or update a member (idempotent via subscriber hash).",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/lists/{list_id}/members/{subscriber_hash}",
+      "args": {
+        "server":          { "type": "string", "required": true,  "description": "Datacenter prefix" },
+        "list_id":         { "type": "string", "required": true,  "description": "Audience id" },
+        "subscriber_hash": { "type": "string", "required": true,  "description": "MD5 of lowercased email" },
+        "email_address":   { "type": "string", "required": true,  "description": "Member email" },
+        "status_if_new":   { "type": "string", "required": false, "description": "subscribed | pending | unsubscribed | cleaned" },
+        "merge_fields":    { "type": "object", "required": false, "description": "Merge tag values" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "members.unsubscribe",
+      "description": "Set a member's status to unsubscribed.",
+      "transport": "api",
+      "method": "PATCH",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/lists/{list_id}/members/{subscriber_hash}",
+      "args": {
+        "server":          { "type": "string", "required": true, "description": "Datacenter prefix" },
+        "list_id":         { "type": "string", "required": true, "description": "Audience id" },
+        "subscriber_hash": { "type": "string", "required": true, "description": "MD5 of lowercased email" },
+        "status":          { "type": "string", "required": true, "description": "'unsubscribed'" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "campaigns.list",
+      "description": "List campaigns.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/campaigns",
+      "args": {
+        "server": { "type": "string", "required": true,  "description": "Datacenter prefix" },
+        "status": { "type": "string", "required": false, "description": "save | paused | schedule | sending | sent" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "campaigns.send",
+      "description": "Send a scheduled campaign immediately.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://{server}.api.mailchimp.com/3.0/campaigns/{campaign_id}/actions/send",
+      "args": {
+        "server":      { "type": "string", "required": true, "description": "Datacenter prefix" },
+        "campaign_id": { "type": "string", "required": true, "description": "Campaign id" }
+      },
+      "side_effects": ["send", "external"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 6,
+    "api_type": "rest",
+    "base_url": "https://api.mailchimp.com",
+    "docs": "https://mailchimp.com/developer/marketing/api/"
+  }
+}

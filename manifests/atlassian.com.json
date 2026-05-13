@@ -1,0 +1,118 @@
+{
+  "version": "1.0",
+  "host": "atlassian.com",
+  "name": "Atlassian (Jira Cloud)",
+  "description": "AgentDOM polyfill manifest for Atlassian Jira Cloud — issues, projects, and JQL search.",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "generated_by": "agentdom/handcrafted",
+  "source": "polyfill",
+  "auth": {
+    "method": "oauth2",
+    "authorize_url": "https://auth.atlassian.com/authorize",
+    "auth_url":      "https://auth.atlassian.com/authorize",
+    "token_url":     "https://auth.atlassian.com/oauth/token",
+    "scopes": ["read:jira-work", "write:jira-work", "manage:jira-project", "offline_access"]
+  },
+  "capabilities": [
+    {
+      "intent": "issues.search",
+      "description": "Search issues using JQL.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/search",
+      "args": {
+        "cloudid":     { "type": "string", "required": true,  "description": "Cloud id from accessible-resources" },
+        "jql":         { "type": "string", "required": true,  "description": "JQL query string" },
+        "maxResults":  { "type": "number", "required": false, "description": "Max issues per page (≤100)" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.get",
+      "description": "Get a single issue by key.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/issue/{issueIdOrKey}",
+      "args": {
+        "cloudid":     { "type": "string", "required": true, "description": "Cloud id" },
+        "issueIdOrKey":{ "type": "string", "required": true, "description": "Issue key (ENG-123) or numeric id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.create",
+      "description": "Create a new issue in a project.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/issue",
+      "args": {
+        "cloudid": { "type": "string", "required": true, "description": "Cloud id" },
+        "fields":  { "type": "object", "required": true, "description": "{ project:{key}, summary, issuetype:{name}, description? }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.update",
+      "description": "Update fields on an existing issue.",
+      "transport": "api",
+      "method": "PUT",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/issue/{issueIdOrKey}",
+      "args": {
+        "cloudid":      { "type": "string", "required": true, "description": "Cloud id" },
+        "issueIdOrKey": { "type": "string", "required": true, "description": "Issue key" },
+        "fields":       { "type": "object", "required": true, "description": "Fields to update" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "issues.transition",
+      "description": "Move an issue to a different status via a workflow transition.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/issue/{issueIdOrKey}/transitions",
+      "args": {
+        "cloudid":      { "type": "string", "required": true, "description": "Cloud id" },
+        "issueIdOrKey": { "type": "string", "required": true, "description": "Issue key" },
+        "transition":   { "type": "object", "required": true, "description": "{ id: '<transitionId>' }" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "comments.add",
+      "description": "Add a comment to an issue.",
+      "transport": "api",
+      "method": "POST",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/issue/{issueIdOrKey}/comment",
+      "args": {
+        "cloudid":      { "type": "string", "required": true, "description": "Cloud id" },
+        "issueIdOrKey": { "type": "string", "required": true, "description": "Issue key" },
+        "body":         { "type": "object", "required": true, "description": "ADF document or string comment body" }
+      },
+      "side_effects": ["external"],
+      "cost": 1
+    },
+    {
+      "intent": "projects.list",
+      "description": "List projects accessible to the current user.",
+      "transport": "api",
+      "method": "GET",
+      "endpoint": "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3/project/search",
+      "args": {
+        "cloudid": { "type": "string", "required": true, "description": "Cloud id" }
+      },
+      "side_effects": ["read"],
+      "cost": 1
+    }
+  ],
+  "meta": {
+    "total_operations": 7,
+    "api_type": "rest",
+    "base_url": "https://api.atlassian.com",
+    "docs": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/"
+  }
+}

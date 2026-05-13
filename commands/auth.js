@@ -60,22 +60,42 @@ function writeWallet(w) {
   atomicWrite(WALLET_FILE, w, { mode: 0o600 });
 }
 
-function setProvider(host, entry) {
-  const w = readWallet();
-  w.providers[host] = { ...entry, obtained_at: new Date().toISOString() };
-  writeWallet(w);
+// Persist a provider entry. Always routes through Keychain (encrypted-file
+// fallback handled internally by lib/keychain.js). Never writes plaintext
+// to wallet.json — Phase 2 hardening.
+async function setProvider(host, entry) {
+  const record = { ...entry, obtained_at: new Date().toISOString() };
+  await keychain.setToken(host, record);
 }
 
-function getProvider(host) {
-  return readWallet().providers[host] || null;
+// Legacy file reader — kept ONLY for migration / backup tooling.
+// Active code paths must call keychain.getToken(host) instead.
+// Returns null when the wallet file is in encrypted-blob form (the keychain
+// file-fallback shape: {v,iv,tag,data}), since those bytes can only be
+// decoded via keychain.getToken().
+function getProviderLegacy(host) {
+  const w = readWallet();
+  if (!w || !w.providers || typeof w.providers !== 'object') return null;
+  return w.providers[host] || null;
 }
 
-function deleteProvider(host) {
-  const w = readWallet();
-  if (!w.providers[host]) return false;
-  delete w.providers[host];
-  writeWallet(w);
-  return true;
+async function deleteProvider(host) {
+  let removed = false;
+  try {
+    const r = await keychain.deleteToken(host);
+    if (r?.ok) removed = true;
+  } catch (_) {}
+  // Also scrub any residual entry in the legacy plaintext file (post-migration
+  // this should always be empty, but be defensive).
+  try {
+    const w = readWallet();
+    if (w.providers && w.providers[host]) {
+      delete w.providers[host];
+      writeWallet(w);
+      removed = true;
+    }
+  } catch (_) {}
+  return removed;
 }
 
 // ── Discovery ───────────────────────────────────────────────────────────────
@@ -265,12 +285,12 @@ async function oauthFlow({ host, manifest, clientId, clientSecret, intents, time
     client_id: clientId,
     token_url: _tokenUrl,
   };
-  setProvider(host, entry);
+  await setProvider(host, entry);
   return entry;
 }
 
 async function refreshOauthToken(host) {
-  const entry = getProvider(host);
+  const entry = await keychain.getToken(host) || getProviderLegacy(host);
   if (!entry || entry.method !== 'oauth2' || !entry.refresh_token) return null;
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -292,7 +312,7 @@ async function refreshOauthToken(host) {
     expires_at: tok.expires_in ? new Date(Date.now() + tok.expires_in * 1000).toISOString() : entry.expires_at,
     obtained_at: new Date().toISOString(),
   };
-  setProvider(host, updated);
+  await setProvider(host, updated);
   return updated;
 }
 
@@ -314,7 +334,7 @@ async function apiKeyFlow({ host, manifest, key }) {
     header: auth.header || 'Authorization',
     format: auth.format || 'Bearer {token}',
   };
-  setProvider(host, entry);
+  await setProvider(host, entry);
   return entry;
 }
 
@@ -332,8 +352,9 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
     if (kToken && !keychain.isExpired(kToken)) {
       return { reused: true, ...sanitize(kToken), provider: host, storage: 'keychain' };
     }
-    // Check file-based wallet as fallback
-    const existing = getProvider(host);
+    // Check file-based wallet as fallback (legacy plaintext entries only —
+    // post-migration this should always be empty)
+    const existing = getProviderLegacy(host);
     if (existing) {
       if (existing.method === 'oauth2' && existing.expires_at && new Date(existing.expires_at) > new Date()) {
         return { reused: true, ...sanitize(existing), provider: host, storage: 'wallet-file' };
@@ -348,8 +369,8 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
   if (pkceConfig && (pkceConfig.auth_url || pkceConfig.device_url || pkceConfig.client_id || pkceConfig.api_key_alt)) {
     try {
       const token = await pkceAuth(host, { forceReauth: force, config: pkceConfig });
-      setProvider(host, token);
-      return { provider: host, ...sanitize(token), storage: await keychain.storageBackend() };
+      // pkceAuth already stores via keychain.setToken; no second write needed.
+      return { provider: host, ...sanitize(token), storage: keychain.storageBackend() };
     } catch (e) {
       console.error(`[AgentDOM] pkceAuth failed for ${host}: ${e.message} — falling back to manifest flow`);
     }
@@ -362,29 +383,26 @@ async function auth({ provider, intents = [], clientId, clientSecret, key, force
   const method = (m.auth && m.auth.method) || 'none';
 
   if (method === 'none') {
-    setProvider(host, { method: 'none' });
+    await setProvider(host, { method: 'none' });
     return { provider: host, method, no_auth_required: true };
   }
   if (method === 'oauth2' || method === 'oauth2_pkce' || method === 'oauth2_cc') {
     clientId = clientId || m.auth.client_id || config?.client_id || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_ID`];
     clientSecret = clientSecret || process.env[`AGENTDOM_${host.replace(/[^A-Z0-9]/gi, '_').toUpperCase()}_CLIENT_SECRET`];
     const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, config: config || m.auth });
-    await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'api_key') {
     const entry = await apiKeyFlow({ host, manifest: m, key });
-    await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'device_flow' || method === 'oauth2_device') {
     const entry = await oauthFlow({ host, manifest: m, clientId, clientSecret, intents, forceDevice: true, config: config || m.auth });
-    await keychain.setToken(host, entry);
     return { provider: host, ...sanitize(entry) };
   }
   if (method === 'session_cookie') {
     info(`Provider ${host} uses session_cookie auth — log in via your browser. AgentDOM will read cookies from the active CDP session at dispatch time.`);
-    setProvider(host, { method: 'session_cookie', domain: m.auth.domain || host });
+    await setProvider(host, { method: 'session_cookie', domain: m.auth.domain || host });
     return { provider: host, method, requires_browser_session: true };
   }
   throw new Error(`Unknown auth method: ${method}`);
@@ -429,8 +447,9 @@ async function token(provider) {
     }
   }
 
-  // 2. File wallet fallback
-  let entry = getProvider(host);
+  // 2. Legacy plaintext wallet fallback (pre-migration only — bootstrap
+  // empties this file on first run)
+  let entry = getProviderLegacy(host);
   if (!entry) return { error: `No auth for ${host}. Call auth({ provider: "${host}" }) first.` };
   if (entry.method === 'oauth2') {
     if (entry.expires_at && new Date(entry.expires_at) <= new Date(Date.now() + 30000)) {
@@ -455,16 +474,19 @@ async function tokens() {
   const results = [];
   for (const host of all) {
     const kToken = await keychain.getToken(host);
-    const fEntry = getProvider(host);
+    const fEntry = getProviderLegacy(host);
     const entry  = kToken || fEntry;
     if (entry) results.push({ provider: host, ...sanitize(entry), expired: kToken ? keychain.isExpired(kToken) : false });
   }
   return results;
 }
 
-function revoke(provider) {
-  const removed = deleteProvider(normalizeHost(provider));
-  return { revoked: removed, provider };
+async function revoke(provider) {
+  const host = normalizeHost(provider);
+  const removed = await deleteProvider(host);
+  // Also stop tracking for auto-refresh so we don't keep hitting a dead token.
+  try { require('../lib/token-lifecycle').untrack(host); } catch (_) {}
+  return { revoked: removed, provider: host };
 }
 
 // ── CLI entry ───────────────────────────────────────────────────────────────
@@ -507,17 +529,17 @@ async function run(argv = []) {
   if (opts.help || rest.length === 0) { help(); process.exit(opts.help ? 0 : 1); }
   const verb = rest[0].toLowerCase();
   if (verb === 'list') {
-    const list = tokens();
+    const list = await tokens();
     if (!list.length) { dim('No providers in wallet.'); return; }
-    process.stdout.write(`\n  ${C.cyan}Wallet${C.r}  (${WALLET_FILE})\n`);
+    process.stdout.write(`\n  ${C.cyan}Wallet${C.r}  (backend: ${keychain.storageBackend()})\n`);
     for (const e of list) {
-      process.stdout.write(`  ${C.green}●${C.r} ${e.provider.padEnd(24)} ${e.method.padEnd(15)} ${e.scopes ? '(' + e.scopes.length + ' scopes)' : ''}\n`);
+      process.stdout.write(`  ${C.green}●${C.r} ${e.provider.padEnd(24)} ${(e.method || 'unknown').padEnd(15)} ${e.scopes ? '(' + e.scopes.length + ' scopes)' : ''}\n`);
     }
     process.stdout.write('\n');
     return;
   }
   if (verb === 'revoke') {
-    const r = revoke(rest[1]);
+    const r = await revoke(rest[1]);
     if (r.revoked) ok(`Revoked ${r.provider}`); else fail(`${rest[1]} not in wallet.`);
     return;
   }

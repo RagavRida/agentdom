@@ -412,9 +412,67 @@ describe('Auth command integration', () => {
     assert.ok(Array.isArray(list), 'Should return array');
   });
 
-  it('should handle revoke of non-existent provider', () => {
-    const result = auth.revoke('nonexistent-test.example.com');
+  it('should handle revoke of non-existent provider', async () => {
+    const result = await auth.revoke('nonexistent-test.example.com');
     assert.equal(result.revoked, false);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+//  WALLET BOOTSTRAP — legacy field normalization
+// ══════════════════════════════════════════════════════════════════════════
+
+describe('Wallet bootstrap — legacy field normalization', () => {
+  let bootstrap;
+  let keychain;
+  const HOST = `legacy-norm-test-${crypto.randomBytes(3).toString('hex')}.example`;
+
+  before(() => {
+    bootstrap = require('../lib/wallet-bootstrap');
+    keychain  = require('../lib/keychain');
+  });
+
+  afterEach(async () => {
+    try { await keychain.deleteToken(HOST); } catch (_) {}
+    bootstrap._resetForTests();
+  });
+
+  it('rewrites legacy key_header/key_format into header/format', async () => {
+    // Simulate an entry migrated before the normalizer existed.
+    await keychain.setToken(HOST, {
+      method: 'api_key',
+      key: 'sk-legacy-xyz',
+      key_header: 'X-Legacy-Auth',
+      key_format: 'Bearer {token}',
+    });
+
+    bootstrap._resetForTests();
+    await bootstrap.bootstrap({ silent: true });
+
+    const after = await keychain.getToken(HOST);
+    assert.ok(after, 'entry should still exist after bootstrap');
+    assert.equal(after.header, 'X-Legacy-Auth', 'header should be set from key_header');
+    assert.equal(after.format, 'Bearer {token}', 'format should be set from key_format');
+    assert.ok(!('key_header' in after), 'key_header should be dropped');
+    assert.ok(!('key_format' in after), 'key_format should be dropped');
+    assert.equal(after.key, 'sk-legacy-xyz', 'key should be preserved');
+  });
+
+  it('is idempotent for entries already on the new schema', async () => {
+    await keychain.setToken(HOST, {
+      method: 'api_key',
+      key: 'sk-already-normal',
+      header: 'Authorization',
+      format: 'Bearer {token}',
+    });
+
+    bootstrap._resetForTests();
+    await bootstrap.bootstrap({ silent: true });
+
+    const after = await keychain.getToken(HOST);
+    assert.equal(after.header, 'Authorization');
+    assert.equal(after.format, 'Bearer {token}');
+    assert.equal(after.key, 'sk-already-normal');
   });
 });
 

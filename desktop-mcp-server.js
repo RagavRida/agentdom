@@ -21,6 +21,7 @@ const authWallet = require('./commands/auth');
 const secrets    = require('./lib/secrets');
 const policy = require('./lib/policy');
 const memory = require('./lib/memory');
+const walletBootstrap = require('./lib/wallet-bootstrap');
 
 const server = new Server(
   { name: 'agentdom', version: '3.0.0' },
@@ -387,7 +388,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!args?.provider) {
           return { content: [{ type: 'text', text: 'wallet_revoke requires { provider }' }], isError: true };
         }
-        return ok(authWallet.revoke(args.provider));
+        return ok(await authWallet.revoke(args.provider));
       }
       if (name === 'dispatch_intent') {
         if (!args?.intent) {
@@ -945,6 +946,7 @@ async function shutdown(signal) {
   shuttingDown = true;
   console.error(`[AgentDOM Desktop] ${signal} received, shutting down...`);
   try { await disposeElectronSession(); } catch (_) {}
+  try { walletBootstrap.shutdown(); } catch (_) {}
   try { await server.close().catch(() => {}); } catch (_) {}
   try { releaseLock(); } catch (_) {}
   process.exit(0);
@@ -993,12 +995,17 @@ function releaseLock() {
 // ── Start ──
 async function main() {
   acquireLock();
+  const boot = await walletBootstrap.bootstrap().catch((e) => {
+    console.error(`[AgentDOM Desktop] wallet bootstrap failed: ${e.message}`);
+    return { migrated: 0, tracked: 0, backend: 'unknown' };
+  });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   const caps = platform.discover();
   console.error(`AgentDOM Platform MCP Server v3.1.0`);
   console.error(`Runtime: ${caps.runtime} | Capabilities: ${caps.capabilities.length}`);
   console.error(`Categories: ${caps.categories.join(', ')}`);
+  console.error(`Wallet: backend=${boot.backend} migrated=${boot.migrated} tracked=${boot.tracked}`);
 }
 
 main().catch(e => { console.error('Fatal:', e); releaseLock(); process.exit(1); });

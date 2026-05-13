@@ -993,7 +993,9 @@ if (args[0] === 'run') {
 } else if (args[0] === 'sessions') {
   require('./commands/sessions').run(args.slice(1));
 } else if (args[0] === 'auth') {
-  require('./commands/auth').run(args.slice(1)).catch(e => { console.error('Fatal:', e); process.exit(1); });
+  require('./lib/wallet-bootstrap').bootstrap({ silent: true })
+    .then(() => require('./commands/auth').run(args.slice(1)))
+    .catch(e => { console.error('Fatal:', e); process.exit(1); });
 
 // ── Setup (one-time human step) ──────────────────────────────────────────────
 } else if (args[0] === 'setup') {
@@ -1012,7 +1014,9 @@ if (args[0] === 'run') {
 // ── Wallet (provision / export / import credentials for agents) ───────────────
 } else if (args[0] === 'wallet') {
   process.argv = [process.argv[0], process.argv[1], ...args.slice(1)];
-  require('./commands/wallet');
+  require('./lib/wallet-bootstrap').bootstrap({ silent: true })
+    .catch(e => console.error(`[wallet] bootstrap warning: ${e.message}`))
+    .finally(() => require('./commands/wallet'));
 
 // ── Agent Token Protocol ──────────────────────────────────────────────────────
 } else if (args[0] === 'agent-token') {

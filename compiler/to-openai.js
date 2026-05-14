@@ -15,6 +15,18 @@ const FIELD_PARAM_TYPE = {
   number: 'number', boolean: 'boolean', file: 'string', select: 'string',
 };
 
+const OPENAI_NAME_MAX = 64;
+
+function safeName(raw, fallback = 'tool') {
+  let n = String(raw || '').replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!n) n = fallback;
+  if (n.length > OPENAI_NAME_MAX) {
+    const hash = require('crypto').createHash('sha1').update(n).digest('hex').slice(0, 6);
+    n = n.slice(0, OPENAI_NAME_MAX - 7) + '_' + hash;
+  }
+  return n;
+}
+
 function fieldToParam(field) {
   const t = FIELD_PARAM_TYPE[field.type] || 'string';
   const schema = { type: t, description: field.label || field.name };
@@ -36,13 +48,14 @@ function formToTool(form, ir) {
   const intent = form.intent || form.submitAction?.intent;
   const submitSlug = form.submitAction?.label ? slugify(form.submitAction.label) : null;
   // Naming priority: known intent → invoke_<submit-label> → submit_<form-id> → generic.
-  const name = intent
+  const rawName = intent
     ? slugify(intent)
     : submitSlug
       ? `invoke_${submitSlug}`
       : form.id
         ? `submit_${slugify(form.id)}`
         : 'submit_form';
+  const name = safeName(rawName, 'submit_form');
   const labelHint = form.submitAction?.label || form.id || 'form';
   return {
     type: 'function',
@@ -65,8 +78,9 @@ function formToTool(form, ir) {
 }
 
 function actionToTool(action, ir) {
-  const name = `click_${action.slug || slugify(action.label)}`;
-  if (!name || name === 'click_') return null;
+  const raw = action.slug || slugify(action.label);
+  if (!raw) return null;
+  const name = safeName(`click_${raw}`);
   return {
     type: 'function',
     function: {

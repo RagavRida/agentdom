@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.openclaw.ai/schemas/skill.json",
+  "name": "agentdom",
+  "version": "0.1.0",
+  "runtime": {
+    "type": "mcp",
+    "transport": "stdio",
+    "command": "agentdom",
+    "args": ["serve"]
+  },
+  "capabilities": {
+    "intents": [
+      "contacts.create", "contacts.search", "contacts.update",
+      "deals.create", "deals.move_stage",
+      "issues.create", "issues.update", "issues.search",
+      "messaging.send", "messaging.read",
+      "vcs.status", "vcs.log", "vcs.create_pr", "vcs.merge_pr",
+      "payments.charge", "payments.refund",
+      "email.send", "email.list",
+      "calendar.book", "calendar.list",
+      "deploy.trigger", "deploy.status",
+      "llm.chat", "llm.embed", "llm.image"
+    ]
+  },
+  "providers": [
+    "github.com", "stripe.com", "linear.app", "hubspot.com",
+    "vercel.com", "slack.com", "notion.so", "supabase.com",
+    "resend.com", "cal.com", "openai.com", "anthropic.com",
+    "openrouter.ai"
+  ]
+}

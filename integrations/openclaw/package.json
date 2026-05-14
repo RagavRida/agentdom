@@ -1,0 +1,38 @@
+{
+  "name": "@agentdom/openclaw-bridge",
+  "version": "0.1.0",
+  "description": "Register AgentDOM as an OpenClaw skill — 1,300+ integrations across 13 providers, zero glue code.",
+  "keywords": [
+    "openclaw",
+    "agentdom",
+    "ai-agent",
+    "mcp",
+    "skill",
+    "integrations"
+  ],
+  "homepage": "https://getagentdom.com/openclaw",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RagavRida/agentdom",
+    "directory": "integrations/openclaw"
+  },
+  "license": "MIT",
+  "author": "Ragavendhra Machikatla",
+  "bin": {
+    "agentdom-openclaw": "./install.js"
+  },
+  "files": [
+    "install.js",
+    "uninstall.js",
+    "skill/"
+  ],
+  "scripts": {
+    "test": "node -e \"require('./install.js')\""
+  },
+  "peerDependencies": {
+    "agentdom": ">=3.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

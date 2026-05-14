@@ -1,40 +1,34 @@
-# AgentDOM — Windows PowerShell Installer
-# Usage: irm https://getagentdom.com/install.ps1 | iex
+# AgentDOM installer — irm https://agentdom.dev/install.ps1 | iex
+$ErrorActionPreference = 'Stop'
 
-Write-Host ""
-Write-Host "  ⚡ AgentDOM Installer" -ForegroundColor Yellow
-Write-Host "  ─────────────────────"
-Write-Host ""
+Write-Host "🔧 Installing AgentDOM..."
 
 # Check for Node.js
 try {
-    $nodeVersion = (node -v) -replace 'v', ''
-    $major = [int]($nodeVersion.Split('.')[0])
-    if ($major -lt 18) {
-        Write-Host "  ✗ Node.js $nodeVersion found, but 18+ required." -ForegroundColor Red
-        Write-Host "  → Update: https://nodejs.org"
-        exit 1
-    }
-    Write-Host "  ✓ Node.js v$nodeVersion detected" -ForegroundColor Green
+    $nodeVersionRaw = (node -v) 2>$null
 } catch {
-    Write-Host "  ✗ Node.js not found." -ForegroundColor Red
-    Write-Host "  → Install Node.js 18+: https://nodejs.org"
+    Write-Host "❌ Node.js not found. Install it first: https://nodejs.org" -ForegroundColor Red
+    exit 1
+}
+if (-not $nodeVersionRaw) {
+    Write-Host "❌ Node.js not found. Install it first: https://nodejs.org" -ForegroundColor Red
     exit 1
 }
 
-# Install
-Write-Host "  → Installing agentdom globally..."
-npm install -g agentdom
+$nodeVersion = $nodeVersionRaw -replace 'v', ''
+$major = [int]($nodeVersion.Split('.')[0])
+if ($major -lt 18) {
+    Write-Host "❌ Node.js 18+ required (found v$nodeVersion)" -ForegroundColor Red
+    exit 1
+}
+
+# Install agentdom globally
+npm install -g agentdom@latest
+
+# Run doctor to verify (don't fail install if doctor reports something)
+try { agentdom doctor } catch {}
 
 Write-Host ""
-Write-Host "  ✓ AgentDOM installed!" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Usage:"
-Write-Host "    agentdom                          # Interactive mode"
-Write-Host "    agentdom https://example.com      # Open a site"
-Write-Host ""
-Write-Host "  AI Mode (optional):"
-Write-Host '    $env:OPENROUTER_API_KEY="sk-or-..."'
-Write-Host "    agentdom https://example.com"
-Write-Host '    > goal "sign up for newsletter"'
-Write-Host ""
+Write-Host "✅ AgentDOM installed! Get started:" -ForegroundColor Green
+Write-Host "   agentdom auth github.com    # authenticate"
+Write-Host "   agentdom serve              # start MCP server"

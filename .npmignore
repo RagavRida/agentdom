@@ -1,9 +1,36 @@
-node_modules/
-.DS_Store
-*.png
-aws/
+# Dev/CI files
+.github/
 .git/
 .gitignore
+aws/
+website/
+website-landing/
+docs/
+test/
+examples/
+python/
+dist/
+chrome-extension/
+
+# Images and large binaries
+*.png
+
+# Markdown (keep README, LICENSE, CHANGELOG)
+*.md
+!README.md
+!LICENSE
+!CHANGELOG.md
+
+# OS / env
+.DS_Store
+.env*
+
+# Deploy / infra
+cdk.json
 deploy-aws.sh
-AWS-DEPLOY.md
 Dockerfile
+AWS-DEPLOY.md
+
+# Misc
+yc-coding-session.md
+node_modules/

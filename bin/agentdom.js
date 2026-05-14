@@ -193,6 +193,15 @@ function registerCommands(program) {
       process.exitCode = code;
     });
 
+  // ── mcp-config ─────────────────────────────────────────────────────────
+  program
+    .command('mcp-config <target>')
+    .description('Print the MCP client config snippet for a target (claude-desktop, claude-code, cursor, vscode)')
+    .action((target) => {
+      const cfg = require(path.join(ROOT, 'commands/mcp-config.js'));
+      process.exitCode = cfg.run(target);
+    });
+
   // ── serve ──────────────────────────────────────────────────────────────
   program
     .command('serve')

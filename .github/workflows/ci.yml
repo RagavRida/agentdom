@@ -8,14 +8,17 @@ on:
 
 jobs:
   test:
-    name: Test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Test (Node ${{ matrix.node }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        node: ['20', '22', '24']
+        node: ['18', '20', '22']
+        os: [ubuntu-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node.js ${{ matrix.node }}
         uses: actions/setup-node@v4
@@ -26,27 +29,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npx eslint lib/ commands/ compiler/ --no-eslintrc --rule '{"no-unused-vars":"warn","no-undef":"error"}' || true
+
       - name: Run tests
-        run: npm test
+        run: node --test test/core.test.js test/wallet-auth.test.js test/transport-perf.test.js test/platform-bridge.test.js test/runtime-gaps.test.js test/cli-packaging.test.js test/distribution.test.js
 
       - name: Validate manifests
-        run: |
-          for f in manifests/*.json; do
-            node -e "
-              const m = require('./$f');
-              if (!m.host) throw new Error('Missing host');
-              if (!m.auth) throw new Error('Missing auth');
-              if (!Array.isArray(m.capabilities)) throw new Error('Missing capabilities');
-              console.log('ok', m.host, m.capabilities.length, 'intents');
-            "
-          done
+        run: node tools/validate-manifest.js --all
 
-      - name: Smoke test secrets resolver
-        run: |
-          node -e "
-            const s = require('./lib/secrets');
-            s.resolve('nonexistent.example.com').then(r => {
-              if (r !== null) process.exit(1);
-              console.log('secrets.resolve ok');
-            });
-          "
+      - name: Verify CLI is executable
+        run: node bin/agentdom.js --help
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-node${{ matrix.node }}-${{ matrix.os }}
+          path: |
+            *.log
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7

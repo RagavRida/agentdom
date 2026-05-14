@@ -52,7 +52,9 @@
     "test:compiler":"node compiler/__test__.js",
     "test:mcp":    "node test/mcp-servers.test.js",
     "test:wallet": "node --test test/wallet-auth.test.js",
-    "validate":    "node tools/validate-manifest.js --all"
+    "validate":    "node tools/validate-manifest.js --all",
+    "prepublishOnly": "node --test test/core.test.js test/wallet-auth.test.js test/transport-perf.test.js test/platform-bridge.test.js test/runtime-gaps.test.js test/cli-packaging.test.js test/distribution.test.js && node tools/validate-manifest.js --all",
+    "postinstall": "node -e \"try{require('./lib/keychain')}catch(e){}\""
   },
   "keywords": [
     "agent",

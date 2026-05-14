@@ -9,16 +9,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
@@ -26,9 +27,20 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: node --test test/core.test.js test/wallet-auth.test.js test/transport-perf.test.js test/platform-bridge.test.js test/runtime-gaps.test.js test/cli-packaging.test.js test/distribution.test.js
 
+      - name: Validate manifests
+        run: node tools/validate-manifest.js --all
+
+      # Requires the NPM_TOKEN repository secret. See README for setup instructions.
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
